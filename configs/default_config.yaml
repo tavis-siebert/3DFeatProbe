@@ -1,0 +1,6 @@
+# TODO: paths hardcoded here for now. 
+# Maybe in future user supplies it env file or txt file, 
+# and the config gets the information overriden at test time
+
+data_paths:
+  uco3d: "/cluster/scratch/tsiebert/uco3d"
