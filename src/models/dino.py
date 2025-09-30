@@ -1,6 +1,7 @@
 
 import torch
 import torch.nn as nn
+import timm
 from transformers import AutoModel
 
 from src.utils.image_utils import center_pad
@@ -30,31 +31,7 @@ class BaseDINO(nn.Module):
             # TODO: implement
             raise NotImplementedError("Yet to implement original DINO")
         elif dino_name == "dinov2":
-            '''
-            # torchhub Version
-            # Doesn't work due to ssl or proxy or something on euler
-            possible_backbones = [
-                "vits14", 
-                "vitb14", 
-                "vitl14",
-                "vitg14", 
-            ]
-            assert backbone in possible_backbones, "Backbone must be one of {}".format(possible_backbones)
-
-            feature_dims = {
-                "vits14": 384,
-                "vitb14": 768,
-                "vitl14": 1024,
-                "vitg14": 1536
-            }
-
-            if with_registers: backbone += "_reg" 
-
-            self.model = torch.hub.load('facebookresearch/dinov2', f"dinov2_{backbone}")
-            self.patch_size = 14
-            self.feature_dim = feature_dims[backbone]
-            '''
-            # huggingface version
+            # uses hf transformers
             possible_backbones = [
                 "small", 
                 "base", 
@@ -66,17 +43,19 @@ class BaseDINO(nn.Module):
             if with_registers: backbone = f"with-registers-{backbone}"
             full_model_path = f"facebook/dinov2-{backbone}"
 
-            self.model = AutoModel.from_pretrained(full_model_path)
+            self.model = AutoModel.from_pretrained(full_model_path) #TODO: set eval() if we don't FT
             self.patch_size = self.model.config.patch_size
             self.feature_dim = self.model.config.hidden_size
         elif dino_name == "dinov3":
+            # uses timm
             possible_backbones = [
-                "vits16",
-                "vits16plus",
-                "vitb16",
-                "vitl16",
-                "vith16plus",
-                "vit7b16"
+                "small",
+                "small_plus",
+                "base",
+                "large",
+                "huge",
+                "huge_plus",
+                "7b"
                 # TODO: support ConvNext (e.g. handle patch size, feature dim, etc)
                 # "convnext-tiny",
                 # "convnext-small",
@@ -85,11 +64,13 @@ class BaseDINO(nn.Module):
             ]
             assert backbone in possible_backbones, "Backbone must be one of {}".format(possible_backbones)
 
-            full_model_path = f"facebook/dinov3-{backbone}-pretrain-lvd1689m"
+            full_model_path = f"vit_{backbone}_patch16_dinov3.lvd1689m"
 
-            self.model = AutoModel.from_pretrained(full_model_path)
-            self.patch_size = self.model.config.patch_size # but should be 16 for all ViTs
-            self.feature_dim = self.model.config.hidden_size
+            self.model = timm.create_model(
+                full_model_path, pretrained=True
+            )
+            self.patch_size = self.model.patch_embed.patch_size[0]
+            self.feature_dim = self.model.embed_dim
         else:
             raise Exception("DINO name must be one of ['dino', 'dinov2', 'dinov3']")
 
@@ -116,6 +97,8 @@ class DINOv2(BaseDINO):
         super().__init__(dino_name="dinov2", backbone=backbone, with_registers=with_registers)
     
     def _apply_transforms(self, images: torch.Tensor) -> torch.Tensor:
+        #TODO: it's not optimal to apply this on every batch. 
+        # Check 1) how this effects mem (e.g. init mean, std each time) and 2) if v2 works on tensors
         """
         Normalize images for DINOv2 before feeding them into the model.
         
@@ -139,7 +122,7 @@ class DINOv2(BaseDINO):
         """
         Args:
             images (torch.Tensor): Batch of images of shape (B, C, H, W).
-            **kwargs: Additional arguments for specific model behavior.
+
         Returns:
             feature map (torch.Tensor) of final hidden layer (B, H_patch, W_patch, D)
                 We return the 2D spatial map because it's easier to go from unflattened to flattened than vise versa
@@ -155,7 +138,6 @@ class DINOv2(BaseDINO):
         outputs = self.model(pixel_values=images)
         last_hidden_states = outputs[0] # (B, 1 + num_register_tokens + num_patches, self.feature_dim)
         feature_map = last_hidden_states[:, -num_patches:, :].unflatten(1, (num_patches_h, num_patches_w))
-
         return feature_map
 
 class DINOv3(BaseDINO):
@@ -168,7 +150,37 @@ class DINOv3(BaseDINO):
             backbone (str): Backbone architecture (e.g. "vitb16"). Check model card at https://github.com/facebookresearch/dinov3/blob/main/MODEL_CARD.md
         """
         super().__init__(dino_name="dinov3", backbone=backbone)
+    
+    def _apply_transforms(self, images: torch.Tensor) -> torch.Tensor:
+        """
+        Same as in DINOv2
+        """
+        # scale to [0, 1] if necessary
+        if images.max() > 1.0:
+            images = images / 255.0
 
-    def forward(self, images: torch.Tensor, **kwargs):
-        # TODO: extract features (there might be register vs non-register differences)
-        raise NotImplementedError("Forward not implemented yet")
+        mean = torch.tensor([0.485, 0.456, 0.406], device=images.device).view(1, 3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225], device=images.device).view(1, 3, 1, 1)
+
+        return (images - mean) / std
+
+    def forward(self, images: torch.Tensor):
+        """
+        Args:
+            images (torch.Tensor): Batch of images of shape (B, C, H, W).
+
+        Returns:
+            feature map (torch.Tensor) of final hidden layer (B, H_patch, W_patch, D)
+                We return the 2D spatial map because it's easier to go from unflattened to flattened than vise versa
+        """
+        # pad until divisible by patch size
+        images = center_pad(images, self.patch_size)
+        images = self._apply_transforms(images)
+
+        _, _, h, w = images.shape
+        num_patches_h, num_patches_w = h // self.patch_size, w // self.patch_size
+        num_patches = num_patches_h * num_patches_w
+
+        output = self.model.forward_features(images) # (B, 1 + num_register_tokens + num_patches, self.feature_dim)
+        feature_map = output[:, -num_patches:, :].unflatten(1, (num_patches_h, num_patches_w))
+        return feature_map
