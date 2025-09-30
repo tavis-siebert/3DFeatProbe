@@ -3,7 +3,7 @@ import torch
 from src.models import *
 
 def test_dinov2_forward(device, backbone="base"):
-    model = DINOv2(backbone, with_registers=False)
+    model = DINOv2(backbone, with_registers=True)
     model.to(device)
     model.eval()
     batch_size = 2
