@@ -84,21 +84,10 @@ if __name__ == '__main__':
     )
     args = parser.parse_args()
 
-    model_names = args.model
+    model_ids = args.model
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    for model_name in model_names:
-        name, backbone = model_name.split('/')
-        if name == 'dinov2':
-            model = DINOv2(backbone, args.with_registers)
-        elif name == 'dinov3':
-            model = DINOv3(backbone)
-        elif name == 'clip':
-            model = CLIP(backbone)
-        elif name == 'siglip2':
-            model = SigLIP2(backbone)
-        else:
-            raise ValueError(f"Model of type {name} is unknown")
-
-        logger.info(f"Computing correspondence for {model_name}")
+    for model_id in model_ids:
+        model = get_model_from_id(model_id=model_id, with_registers=args.with_registers)
+        logger.info(f"Computing correspondence for {model_id}")
         test_uco3d(model, device)
         logger.info("=======================")
