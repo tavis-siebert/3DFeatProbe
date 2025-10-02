@@ -1,6 +1,6 @@
 # 3DFeatProbe
 
 ## TODOs
-- [ ] Access DINOv3 on HFHub and test relevant code
-- [ ] Implement DINO (original)
+- [ ] Dataset wrapper
+- [ ] Model preprocessing (paritcularly image sizes)
 - [ ] Handle ConvNext for DINOv3

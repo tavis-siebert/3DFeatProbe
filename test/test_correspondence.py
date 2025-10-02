@@ -1,12 +1,18 @@
 """
 Code to test extracting desired properties from datasets
 """
+import argparse
+import logging
 import os
 import torch
+
 from src.eval.multiview_correspondence import compute_correspondence_score
+from src.utils.logging import init_logger
 from src.models import *
 
-def test_uco3d():
+logger = logging.getLogger()
+
+def test_uco3d(model, device):
     from external.uco3d.uco3d import UCO3DDataset, UCO3DFrameDataBuilder
 
     #TODO: use config or .env, not hardcoded path
@@ -43,23 +49,56 @@ def test_uco3d():
         )
     )
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = DINOv2('base', with_registers=True)
     model.to(device)
     model.eval()
 
-    print(f"Computing Correspondences on uco3d Debug Split with DINOv2")
-    print("=======================")
     scores = compute_correspondence_score(dataset, model, device)
     for seq_name, score_dict in scores.items():
-        print(f"Sequence: {seq_name}")
+        logger.info(f"Sequence: {seq_name}")
         for key, value in score_dict.items():
-            print(f"  {key}: {value}")
-    print("===== Summary ====")
-    avg_corr_score = sum(score_dict["corr"] for score_dict in scores.values()) / len(scores)
-    avg_non_corr_score = sum(score_dict["non_corr"] for score_dict in scores.values()) / len(scores)
-    print(f"Average Corr Score: {avg_corr_score:.4f}")
-    print(f"Average Non-Corr Score: {avg_non_corr_score:.4f}")
+            logger.info(f"  {key}: {value}")
+
+    logger.info("===== Summary ====")
+    corr_scores = torch.tensor([score_dict["corr"] for score_dict in scores.values()])
+    non_corr_scores = torch.tensor([score_dict["non_corr"] for score_dict in scores.values()])
+    avg_corr_score, avg_non_corr_score = corr_scores.mean().item(), non_corr_scores.mean().item()
+    max_corr_score, min_corr_score = corr_scores.max().item(), corr_scores.min().item()
+    logger.info(f"Average Corr Score: {avg_corr_score:.4f}")
+    logger.info(f"Average Non-Corr Score: {avg_non_corr_score:.4f}")
+    logger.info(f"Min Corr Score: {min_corr_score:.4f}")
+    logger.info(f"Max Corr Score: {max_corr_score:.4f}")
 
 if __name__ == '__main__':
-    test_uco3d()
+    init_logger()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--model",
+        nargs="+",   # accept one or more values
+        required=True,
+        help="Model name(s) to use."
+    )
+    parser.add_argument(
+        "--with_registers",
+        action="store_true",
+        help="Whether you want to test a model with register tokens. This only matters for specific models like dinov2"
+    )
+    args = parser.parse_args()
+
+    model_names = args.model
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    for model_name in model_names:
+        name, backbone = model_name.split('/')
+        if name == 'dinov2':
+            model = DINOv2(backbone, args.with_registers)
+        elif name == 'dinov3':
+            model = DINOv3(backbone)
+        elif name == 'clip':
+            model = CLIP(backbone)
+        elif name == 'siglip2':
+            model = SigLIP2(backbone)
+        else:
+            raise ValueError(f"Model of type {name} is unknown")
+
+        logger.info(f"Computing correspondence for {model_name}")
+        test_uco3d(model, device)
+        logger.info("=======================")

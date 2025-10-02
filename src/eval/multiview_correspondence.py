@@ -1,4 +1,5 @@
 import json
+import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,6 +8,8 @@ from typing import Dict
 from src.utils.camera import unproject, build_pose_matrix, invert_pose
 from external.uco3d.uco3d import UCO3DDataset
 from external.uco3d.uco3d.dataset_utils.utils import opencv_cameras_projection_from_uco3d
+
+logger = logging.getLogger()
 
 def downsample_world_coords(world_coords: torch.Tensor, patch_size: int) -> torch.Tensor:
     """
@@ -176,6 +179,8 @@ def compute_correspondence_score(
         num_frames_by_sequence = json.load(f)
 
     for sequence_name in dataset.sequence_names():
+        logger.info(f"Processing sequence: {sequence_name}")
+
         seq_len = num_frames_by_sequence[sequence_name]
         frames_to_sample = torch.linspace(0, seq_len-1, num_frames_sampled).long().tolist()
 
@@ -208,7 +213,7 @@ def compute_correspondence_score(
             torch.stack(poses_for_wc, dim=0).to(device), 
             torch.stack(depth_maps, dim=0).squeeze().to(device)
         )
-        world_coords = downsample_world_coords(world_coords, patch_size=14)
+        world_coords = downsample_world_coords(world_coords, patch_size=model.patch_size)
         _, voxel_ids = voxelize_world_coords(world_coords, voxel_size=0.1)
 
         with torch.no_grad():

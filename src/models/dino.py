@@ -6,101 +6,19 @@ from transformers import AutoModel
 
 from src.utils.image_utils import center_pad
 
-class BaseDINO(nn.Module):
-    """
-    Base class for DINO models.
-    """
-    def __init__(
-        self, 
-        dino_name: str="dinov2",
-        backbone: str="base",
-        with_registers: bool=False,
-    ):
-        """
-        Args:
-            dino_name (str): Name of the DINO model. Options: 'dino', 'dinov2', 'dinov3'.
-            backbone (str): Backbone architecture. Options depend on dino_name. Check model cards on respective repos for details.
-        """
+class DINOProcessor(nn.Module):
+    #TODO: Still not sure whether this is better or trying to hack around the processor on hf
+    # I am breaking DRY pretty badly as all my ViT mdodels seem to do this
+    # The big thing that determines whether I make a base ViTProcessor class is whether I do this center pad on every image
+    def __init__(self, patch_size: int):
         super().__init__()
-
-        self.model = None
-        self.patch_size = None
-        self.feature_dim = None
-
-        if dino_name == "dino":
-            # TODO: implement
-            raise NotImplementedError("Yet to implement original DINO")
-        elif dino_name == "dinov2":
-            # uses hf transformers
-            possible_backbones = [
-                "small", 
-                "base", 
-                "large",
-                "giant", 
-            ]
-            assert backbone in possible_backbones, "Backbone must be one of {}".format(possible_backbones)
-
-            if with_registers: backbone = f"with-registers-{backbone}"
-            full_model_path = f"facebook/dinov2-{backbone}"
-
-            self.model = AutoModel.from_pretrained(full_model_path) #TODO: set eval() if we don't FT
-            self.patch_size = self.model.config.patch_size
-            self.feature_dim = self.model.config.hidden_size
-        elif dino_name == "dinov3":
-            # uses timm
-            possible_backbones = [
-                "small",
-                "small_plus",
-                "base",
-                "large",
-                "huge",
-                "huge_plus",
-                "7b"
-                # TODO: support ConvNext (e.g. handle patch size, feature dim, etc)
-                # "convnext-tiny",
-                # "convnext-small",
-                # "convnext-base",
-                # "convnext-large"
-            ]
-            assert backbone in possible_backbones, "Backbone must be one of {}".format(possible_backbones)
-
-            full_model_path = f"vit_{backbone}_patch16_dinov3.lvd1689m"
-
-            self.model = timm.create_model(
-                full_model_path, pretrained=True
-            )
-            self.patch_size = self.model.patch_embed.patch_size[0]
-            self.feature_dim = self.model.embed_dim
-        else:
-            raise Exception("DINO name must be one of ['dino', 'dinov2', 'dinov3']")
-
-    def forward(self, images: torch.Tensor, **kwargs):
-        """
-        Template forward method.
-
-        Args:
-            images (torch.Tensor): Batch of images of shape (B, C, H, W).
-            **kwargs: Additional arguments for specific model behavior.
-        """
-        raise NotImplementedError("Subclasses must implement this method.")
-
-class DINOv2(BaseDINO):
-    """
-    DINOv2 model class.
-    """
-    def __init__(self, backbone: str="base", with_registers=False):
-        """
-        Args:
-            backbone (str): Backbone architecture (e.g. "base"). Check model card at https://huggingface.co/collections/facebook/dinov2-6526c98554b3d2576e071ce3
-            with_registers (bool): Whether to use DINOv2 with register tokens. Default = False.
-        """
-        super().__init__(dino_name="dinov2", backbone=backbone, with_registers=with_registers)
+        self.patch_size = patch_size
+        self.register_buffer("mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
+        self.register_buffer("std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
     
-    def _apply_transforms(self, images: torch.Tensor) -> torch.Tensor:
-        #TODO: it's not optimal to apply this on every batch. 
-        # Check 1) how this effects mem (e.g. init mean, std each time) and 2) if v2 works on tensors
+    def forward(self, images: torch.Tensor) -> torch.Tensor:
         """
-        Normalize images for DINOv2 before feeding them into the model.
+        Normalize images before feeding them into DINO models.
         
         Args:
             images (torch.Tensor): Batch of images of shape (B, 3, H, W).
@@ -112,11 +30,41 @@ class DINOv2(BaseDINO):
         # scale to [0, 1] if necessary
         if images.max() > 1.0:
             images = images / 255.0
+        
+        # center pad to ensure divisibility w/ patch size
+        images = center_pad(images, self.patch_size)
 
-        mean = torch.tensor([0.485, 0.456, 0.406], device=images.device).view(1, 3, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225], device=images.device).view(1, 3, 1, 1)
+        # normalie with ImageNet mean, std
+        return (images - self.mean) / self.std
 
-        return (images - mean) / std
+class DINOv2(nn.Module):
+    """
+    DINOv2 model class.
+    """
+    def __init__(self, backbone: str="base", with_registers=False):
+        """
+        Args:
+            backbone (str): Backbone architecture (e.g. "base"). Check models README
+            with_registers (bool): Whether to use DINOv2 with register tokens. Default = False.
+        """
+        super().__init__()
+        
+        # uses hf transformers
+        possible_backbones = (
+            "small", 
+            "base", 
+            "large",
+            "giant", 
+        )
+        assert backbone in possible_backbones, "Backbone must be one of {}".format(possible_backbones)
+
+        if with_registers: backbone = f"with-registers-{backbone}"
+        full_model_path = f"facebook/dinov2-{backbone}"
+
+        self.model = AutoModel.from_pretrained(full_model_path) #TODO: set eval() if we don't FT
+        self.patch_size = self.model.config.patch_size
+        self.feature_dim = self.model.config.hidden_size
+        self.processor = DINOProcessor(self.patch_size)
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         """
@@ -127,9 +75,7 @@ class DINOv2(BaseDINO):
             feature map (torch.Tensor) of final hidden layer (B, H_patch, W_patch, D)
                 We return the 2D spatial map because it's easier to go from unflattened to flattened than vise versa
         """
-        # pad until divisible by patch size
-        images = center_pad(images, self.patch_size)
-        images = self._apply_transforms(images)
+        images = self.processor(images)
 
         _, _, h, w = images.shape
         num_patches_h, num_patches_w = h // self.patch_size, w // self.patch_size
@@ -140,31 +86,42 @@ class DINOv2(BaseDINO):
         feature_map = last_hidden_states[:, -num_patches:, :].unflatten(1, (num_patches_h, num_patches_w))
         return feature_map
 
-class DINOv3(BaseDINO):
+class DINOv3(nn.Module):
     """
     DINOv3 model class.
     """
-    def __init__(self, backbone: str="vitb16"):
+    def __init__(self, backbone: str="base"):
         """
         Args:
-            backbone (str): Backbone architecture (e.g. "vitb16"). Check model card at https://github.com/facebookresearch/dinov3/blob/main/MODEL_CARD.md
+            backbone (str): Backbone architecture (e.g. "base"). Check models README
         """
-        super().__init__(dino_name="dinov3", backbone=backbone)
-    
-    def _apply_transforms(self, images: torch.Tensor) -> torch.Tensor:
-        """
-        Same as in DINOv2
-        """
-        # scale to [0, 1] if necessary
-        if images.max() > 1.0:
-            images = images / 255.0
+        super().__init__()
 
-        mean = torch.tensor([0.485, 0.456, 0.406], device=images.device).view(1, 3, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225], device=images.device).view(1, 3, 1, 1)
+        # uses timm
+        possible_backbones = (
+            "small",
+            "small_plus",
+            "base",
+            "large",
+            "huge",
+            "huge_plus",
+            "7b"
+            # TODO: support ConvNext (e.g. handle patch size, feature dim, etc)
+            # "convnext-tiny",
+            # "convnext-small",
+            # "convnext-base",
+            # "convnext-large"
+        )
+        assert backbone in possible_backbones, "Backbone must be one of {}".format(possible_backbones)
 
-        return (images - mean) / std
+        full_model_path = f"vit_{backbone}_patch16_dinov3.lvd1689m"
 
-    def forward(self, images: torch.Tensor):
+        self.model = timm.create_model(full_model_path, pretrained=True)
+        self.patch_size = self.model.patch_embed.patch_size[0]
+        self.feature_dim = self.model.embed_dim
+        self.processor = DINOProcessor(self.patch_size)
+
+    def forward(self, images: torch.Tensor) -> torch.Tensor:
         """
         Args:
             images (torch.Tensor): Batch of images of shape (B, C, H, W).
@@ -173,9 +130,7 @@ class DINOv3(BaseDINO):
             feature map (torch.Tensor) of final hidden layer (B, H_patch, W_patch, D)
                 We return the 2D spatial map because it's easier to go from unflattened to flattened than vise versa
         """
-        # pad until divisible by patch size
-        images = center_pad(images, self.patch_size)
-        images = self._apply_transforms(images)
+        images = self.processor(images)
 
         _, _, h, w = images.shape
         num_patches_h, num_patches_w = h // self.patch_size, w // self.patch_size
