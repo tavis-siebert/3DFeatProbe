@@ -38,3 +38,4 @@ def center_pad(images: torch.Tensor, patch_size: int) -> torch.Tensor:
 
     images = F.pad(images, (pad_l, pad_r, pad_t, pad_b))
     return images
+    
