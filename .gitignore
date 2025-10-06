@@ -1,9 +1,10 @@
-# Any venvs
 .venv/
-
+.vscode/
 __pycache__/
+
 logs/
 test/
+
 *.sh
 *.html
 *.jpg

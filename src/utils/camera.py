@@ -1,4 +1,3 @@
-
 import torch
 
 def build_intrinsic_matrix(

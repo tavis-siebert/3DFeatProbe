@@ -6,8 +6,8 @@ import torch.nn.functional as F
 from typing import Dict, Optional
 
 from src.utils.camera import unproject, build_pose_matrix, invert_pose
-from external.uco3d.uco3d import UCO3DDataset
-from external.uco3d.uco3d.dataset_utils.utils import opencv_cameras_projection_from_uco3d
+from uco3d import UCO3DDataset
+from uco3d.dataset_utils.utils import opencv_cameras_projection_from_uco3d
 
 logger = logging.getLogger()
 
