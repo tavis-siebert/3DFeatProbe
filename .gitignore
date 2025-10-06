@@ -3,6 +3,7 @@
 
 __pycache__/
 logs/
+test/
 *.sh
 *.html
 *.jpg
