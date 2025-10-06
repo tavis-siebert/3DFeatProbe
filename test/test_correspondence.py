@@ -37,7 +37,7 @@ def test_uco3d(model, device):
             load_depth_masks=True,
             load_gaussian_splats=False,
             gaussian_splats_truncate_background=False,
-            load_point_clouds=False,
+            load_point_clouds=True,
             load_segmented_point_clouds=False,
             load_sparse_point_clouds=False,
             box_crop=True,

@@ -3,7 +3,7 @@ import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict
+from typing import Dict, Optional
 
 from src.utils.camera import unproject, build_pose_matrix, invert_pose
 from external.uco3d.uco3d import UCO3DDataset
@@ -22,7 +22,6 @@ def downsample_world_coords(world_coords: torch.Tensor, patch_size: int) -> torc
     Returns:
         torch.Tensor: (N, P_H, P_W, 3)
     """
-    N, H, W, D = world_coords.shape
     # permute for pooling
     coords = world_coords.permute(0, 3, 1, 2)
 
@@ -51,22 +50,34 @@ def ravel_hash_vec(arr: torch.Tensor) -> torch.Tensor:
     keys += a[..., -1]
     return keys
 
-def voxelize_world_coords(world_coords_pooled: torch.Tensor, voxel_size: float=0.1) -> tuple[torch.Tensor, torch.Tensor]:
+def voxelize_world_coords(
+    world_coords_pooled: torch.Tensor, 
+    scene_point_cloud: Optional[torch.Tensor] = None,
+    voxel_size: float=0.1
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Discretize world points to voxel grid coordinates
     Code adapted from: https://github.com/Visual-AI/3DRS/blob/11ad004a9d81d7bdb0034cf19bdca457146e8892/llava/model/language_model/.ipynb_checkpoints/llava_qwen-checkpoint.py#L283
 
     Args:
         world_coords_pooled (torch.Tensor): Per patch pooled points in world coordinates (N, H_p, W_p, 3)
+        scene_point_cloud (torch.Tensor, Optional): The scene point cloud to compute voxel boundaries (-1, 3)
         voxel_size (float): Size of each voxel
 
     Returns:
         tuple[torch.Tensor, torch.Tensor] of discretized world coordinates and their voxel ids
     """
-    # min_xyz_range = [-15, -15, -5]
-    # max_xyz_range = [15, 15, 5]
-    min_xyz = world_coords_pooled.amin(dim=(0,1,2))
-    max_xyz = world_coords_pooled.amax(dim=(0,1,2))
+    # TODO: dynamic voxel size based on box size
+
+    if scene_point_cloud is not None:
+        min_xyz, _ = scene_point_cloud.min(dim=0)
+        max_xyz, _ = scene_point_cloud.max(dim=0)
+    else:
+        # min_xyz_range = [-15, -15, -5]
+        # max_xyz_range = [15, 15, 5]
+        logger.warning("Using dynamic coordinates can lead to noisier correspondence scores")
+        min_xyz = world_coords_pooled.amin(dim=(0,1,2))
+        max_xyz = world_coords_pooled.amax(dim=(0,1,2))
 
     min_xyz = torch.tensor(min_xyz).to(world_coords_pooled.device)
     max_xyz = torch.tensor(max_xyz).to(world_coords_pooled.device)
@@ -167,7 +178,8 @@ def correspondence_score(features: torch.Tensor, voxel_ids: torch.Tensor, chunk_
 def compute_correspondence_score(
     dataset: UCO3DDataset,
     model: nn.Module,   #TODO a FeatureExtractor class
-    device: str | torch.device='cpu'
+    device: str | torch.device='cpu',
+    resize_size: list[int] | torch.Tensor = [512, 512]
 ) -> Dict[str, Dict[str, float]]:
     scores = {}
     
@@ -178,43 +190,57 @@ def compute_correspondence_score(
     with open("/cluster/home/tsiebert/3DFeatProbe/test/debug-video-lengths.json") as f:
         num_frames_by_sequence = json.load(f)
 
+    if not torch.is_tensor(resize_size):
+        resize_size = torch.LongTensor(resize_size)
+    elif resize_size.dtype != torch.long:
+        resize_size = resize_size.long()
+
     for sequence_name in dataset.sequence_names():
         logger.info(f"Processing sequence: {sequence_name}")
-
+        # TODO:
+        # co3d gives camera_quality_score and point_cloud_quality_score.
+        # might want to filter frames with low scores before unprojecting, to avoid garbage world coords.
+        # TODO: 
+        # depth maps might help remove invalid points, but keeping track of the mask needs some thought
+        # also need to handle 
         seq_len = num_frames_by_sequence[sequence_name]
         frames_to_sample = torch.linspace(0, seq_len-1, num_frames_sampled).long().tolist()
 
-        views, depth_maps, poses, intrinsics = [], [], [], []
-        poses_for_wc, intrinsics_for_wc = [], []
+        views, poses, intrinsics = [], [], []
+        depth_maps, depth_masks = [], []
+        poses_for_wc = []
         for frame_idx in frames_to_sample:
             frame_data = dataset[sequence_name, frame_idx]
+            frame_data.resize_frame_(resize_size)
+
             image = frame_data.image_rgb    # Tensor of size 3, 800, 800 in [0,1]
-            depth_map = frame_data.depth_map    # Tensor of size 1, 800, 800
             camera = frame_data.camera
-            
+
             _, H, W = image.shape
             R, tvec, K = opencv_cameras_projection_from_uco3d(camera, torch.tensor([[H,W]]))
             pose = build_pose_matrix(R, tvec)
 
-            views.append(image)
-            depth_maps.append(depth_map)
-            # poses.append(pose)
-            # intrinsics.append(K)
+            depth_map = frame_data.depth_map    # Tensor of size 1, 800, 800
 
-            pose_for_wc = torch.cat([pose, torch.tensor([0,0,0,1]).unsqueeze(0)], dim=0) # (4,4)
-            pose_for_wc = invert_pose(pose_for_wc) # cam2world
-            K_for_wc = torch.eye(4)
-            K_for_wc[:3, :3] = K
+            views.append(image)
+            poses.append(pose)
+            intrinsics.append(K)
+
+            depth_maps.append(depth_map)
+
+            pose_for_wc = invert_pose(pose) # cam2world
             poses_for_wc.append(pose_for_wc)
-            intrinsics_for_wc.append(K_for_wc)
             
         world_coords = unproject(
-            torch.stack(intrinsics_for_wc, dim=0).to(device),
+            torch.stack(intrinsics, dim=0).squeeze().to(device),
             torch.stack(poses_for_wc, dim=0).to(device), 
             torch.stack(depth_maps, dim=0).squeeze().to(device)
         )
+
         world_coords = downsample_world_coords(world_coords, patch_size=model.patch_size)
-        _, voxel_ids = voxelize_world_coords(world_coords, voxel_size=0.1)
+        pcd = dataset[sequence_name, 0].sequence_point_cloud.xyz
+
+        _, voxel_ids = voxelize_world_coords(world_coords, scene_point_cloud=pcd, voxel_size=0.1)
 
         with torch.no_grad():
             features = model(torch.stack(views, dim=0).to(device))
