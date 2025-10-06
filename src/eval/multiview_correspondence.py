@@ -179,7 +179,7 @@ def compute_correspondence_score(
     dataset: UCO3DDataset,
     model: nn.Module,   #TODO a FeatureExtractor class
     device: str | torch.device='cpu',
-    resize_size: list[int] | torch.Tensor = [512, 512]
+    resize_size: Optional[list[int] | torch.Tensor] = None
 ) -> Dict[str, Dict[str, float]]:
     scores = {}
     
@@ -190,10 +190,11 @@ def compute_correspondence_score(
     with open("/cluster/home/tsiebert/3DFeatProbe/test/debug-video-lengths.json") as f:
         num_frames_by_sequence = json.load(f)
 
-    if not torch.is_tensor(resize_size):
-        resize_size = torch.LongTensor(resize_size)
-    elif resize_size.dtype != torch.long:
-        resize_size = resize_size.long()
+    if resize_size is not None:
+        if not torch.is_tensor(resize_size):
+            resize_size = torch.LongTensor(resize_size)
+        elif resize_size.dtype != torch.long:
+            resize_size = resize_size.long()
 
     for sequence_name in dataset.sequence_names():
         logger.info(f"Processing sequence: {sequence_name}")
@@ -211,7 +212,8 @@ def compute_correspondence_score(
         poses_for_wc = []
         for frame_idx in frames_to_sample:
             frame_data = dataset[sequence_name, frame_idx]
-            frame_data.resize_frame_(resize_size)
+            if resize_size is not None:
+                frame_data.resize_frame_(resize_size)
 
             image = frame_data.image_rgb    # Tensor of size 3, 800, 800 in [0,1]
             camera = frame_data.camera
