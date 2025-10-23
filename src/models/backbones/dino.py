@@ -1,9 +1,8 @@
 import torch
 import torch.nn as nn
 import timm
-from transformers import AutoModel
 
-from src.models.processor import BaseProcessor
+from src.models.processors import BaseProcessor
 
 class DINOv2(nn.Module):
     """
@@ -13,7 +12,7 @@ class DINOv2(nn.Module):
         """
         Args:
             backbone (str): Backbone architecture (e.g. "base"). Check models README
-            with_registers (bool): Whether to use DINOv2 with register tokens. Default = False.
+            with_registers (bool): Whether to use DINOv2 with register tokens. Default = False
             preprocess_images (bool): Whether to preprocess images inside the forward pass. Default = True
         """
         super().__init__()
@@ -41,10 +40,13 @@ class DINOv2(nn.Module):
         """
         Args:
             images (torch.Tensor): Batch of images of shape (B, C, H, W).
-
+        
         Returns:
-            feature map (torch.Tensor) of final hidden layer (B, H_patch, W_patch, D)
-                We return the 2D spatial map because it's easier to go from unflattened to flattened than vise versa
+            output_dict (Dict[str, torch.Tensor]): convenient views of last hidden states for downstream use
+                "full_embeds": the last hidden state in full (including CLS and possible register or other tokens)
+                "cls_token": the CLS token for classification or semantic tasks
+                "patch_embeds": the patch embeddings as a 2D spatial map.
+                                We return the 2D view as it's easier to flatten later than unflatten without knowledge of num_patches in H, W
         """
         if self.preprocess_images:
             images = self.processor(images)
@@ -53,9 +55,14 @@ class DINOv2(nn.Module):
         num_patches_h, num_patches_w = h // self.patch_size, w // self.patch_size
         num_patches = num_patches_h * num_patches_w
 
-        output = self.model.forward_features(images) # (B, 1 + num_register_tokens + num_patches, self.feature_dim)
-        feature_map = output[:, -num_patches:, :].unflatten(1, (num_patches_h, num_patches_w))
-        return feature_map
+        last_hidden_states = self.model.forward_features(images) # (B, 1 + num_register_tokens + num_patches, self.feature_dim)
+        
+        output_dict = {
+            "full_embeds": last_hidden_states,
+            "cls_token": last_hidden_states[:, 0],
+            "patch_embeds": last_hidden_states[:, -num_patches:, :].unflatten(1, (num_patches_h, num_patches_w))
+        }
+        return output_dict
     
 
 class DINOv3(nn.Module):
@@ -100,9 +107,13 @@ class DINOv3(nn.Module):
         """
         Args:
             images (torch.Tensor): Batch of images of shape (B, C, H, W).
+        
         Returns:
-            feature map (torch.Tensor) of final hidden layer (B, H_patch, W_patch, D)
-                We return the 2D spatial map because it's easier to go from unflattened to flattened than vise versa
+            output_dict (Dict[str, torch.Tensor]): convenient views of last hidden states for downstream use
+                "full_embeds": the last hidden state in full (including CLS and possible register or other tokens)
+                "cls_token": the CLS token for classification or semantic tasks
+                "patch_embeds": the patch embeddings as a 2D spatial map.
+                                We return the 2D view as it's easier to flatten later than unflatten without knowledge of num_patches in H, W
         """
         if self.preprocess_images:
             images = self.processor(images)
@@ -111,6 +122,11 @@ class DINOv3(nn.Module):
         num_patches_h, num_patches_w = h // self.patch_size, w // self.patch_size
         num_patches = num_patches_h * num_patches_w
 
-        output = self.model.forward_features(images) # (B, 1 + num_register_tokens + num_patches, self.feature_dim)
-        feature_map = output[:, -num_patches:, :].unflatten(1, (num_patches_h, num_patches_w))
-        return feature_map
+        last_hidden_states = self.model.forward_features(images) # (B, 1 + num_register_tokens + num_patches, self.feature_dim)
+        
+        output_dict = {
+            "full_embeds": last_hidden_states,
+            "cls_token": last_hidden_states[:, 0],
+            "patch_embeds": last_hidden_states[:, -num_patches:, :].unflatten(1, (num_patches_h, num_patches_w))
+        }
+        return output_dict

@@ -49,7 +49,12 @@ class SigLIP2(nn.Module):
     """
     SigLIP2 (image encoder) model class
     """
-    def __init__(self, backbone: str="base"):
+    def __init__(self, backbone: str="base", preprocess_images: bool=True):
+        """
+        Args:
+            backbone (str): Backbone architecture (e.g. "base"). Check models README
+            preprocess_images (bool): Whether to preprocess images inside the forward pass. Default = True
+        """
         super().__init__()
 
         possible_backbones = ("base", "so400m")
@@ -67,13 +72,21 @@ class SigLIP2(nn.Module):
             images (torch.Tensor): Batch of images of shape (B, C, H, W).
 
         Returns:
-            feature map (torch.Tensor) of final hidden layer (B, H_patch, W_patch, D)
-                We return the 2D spatial map because it's easier to go from unflattened to flattened than vise versa
+            output_dict (Dict[str, torch.Tensor]): convenient views of last hidden states for downstream use
+                "full_embeds": the last hidden state in full (including CLS and possible register or other tokens)
+                "cls_token": the CLS token for classification or semantic tasks
+                "patch_embeds": the patch embeddings as a 2D spatial map.
+                                We return the 2D view as it's easier to flatten later than unflatten without knowledge of num_patches in H, W
         """
         input, num_patches_h, num_patches_w = self.processor(images)
         num_patches = num_patches_h * num_patches_w
 
         outputs = self.model(**input)
         last_hidden_states = outputs.last_hidden_state
-        feature_map = last_hidden_states[:, -num_patches:, :].unflatten(1, (num_patches_h, num_patches_w))
-        return feature_map
+        
+        output_dict = {
+            "full_embeds": last_hidden_states,
+            "cls_token": last_hidden_states[:, 0],
+            "patch_embeds": last_hidden_states[:, -num_patches:, :].unflatten(1, (num_patches_h, num_patches_w))
+        }
+        return output_dict
