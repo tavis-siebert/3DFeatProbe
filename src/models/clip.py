@@ -2,35 +2,10 @@ import torch
 import torch.nn as nn
 from transformers import CLIPVisionModel
 
-from src.utils.image_utils import center_pad
+from src.models.processor import BaseProcessor
 
-class CLIPProcessor(nn.Module):
-    def __init__(self, patch_size: int):
-        super().__init__()
-        self.patch_size = patch_size
-        self.register_buffer("mean", torch.tensor([0.48145466, 0.4578275, 0.40821073]).view(1, 3, 1, 1))
-        self.register_buffer("std", torch.tensor([0.26862954, 0.26130258, 0.27577711]).view(1, 3, 1, 1))
-    
-    def forward(self, images: torch.Tensor) -> torch.Tensor:
-        """
-        Normalize images before feeding them into DINO models.
-        
-        Args:
-            images (torch.Tensor): Batch of images of shape (B, 3, H, W).
-                Can be in range [0, 255] or [0, 1].
-
-        Returns:
-            torch.Tensor: Normalized images of shape (B, 3, H, W).
-        """
-        # scale to [0, 1] if necessary
-        if images.max() > 1.0:
-            images = images / 255.0
-        
-        # center pad to ensure divisibility w/ patch size
-        images = center_pad(images, self.patch_size)
-
-        # normalie with ImageNet mean, std
-        return (images - self.mean) / self.std
+CLIP_MEAN = [0.48145466, 0.4578275, 0.40821073]
+CLIP_STD = [0.26862954, 0.26130258, 0.27577711]
 
 class CLIP(nn.Module):
     """
@@ -49,7 +24,7 @@ class CLIP(nn.Module):
         self.model = CLIPVisionModel.from_pretrained(f"openai/clip-{backbone}")
         self.patch_size = self.model.config.patch_size
         self.feature_dim = self.model.config.hidden_size
-        self.processor = CLIPProcessor(self.patch_size)
+        self.processor = BaseProcessor(patch_size=self.patch_size, normalize=True, mean=CLIP_MEAN, std=CLIP_STD)
     
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         """

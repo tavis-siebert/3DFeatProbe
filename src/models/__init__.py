@@ -3,8 +3,13 @@ from .dino import DINOv2, DINOv3
 from .clip import CLIP
 from .siglip import SigLIP2
 from .mae import MAE
+from .vggt import VGGTFeatureExtractor
 
-__all__ = ["DINOv2", "DINOv3", "CLIP", "SigLIP2", "MAE", "get_model_from_id"]
+__all__ = [
+    "DINOv2", "DINOv3", "CLIP", "SigLIP2", "MAE", 
+    "VGGTFeatureExtractor",
+    "get_model_from_id"
+]
 
 def get_model_from_id(model_id, **kwargs):
     """Factory function to return a model instance based on model_id.
@@ -30,5 +35,7 @@ def get_model_from_id(model_id, **kwargs):
             return SigLIP2(backbone)
         case "mae":
             return MAE(backbone)
+        case "vggt-feature":
+            return VGGTFeatureExtractor(backbone, kwargs.get("layer_type", "all"))
         case _:
             raise ValueError(f"Model type '{name}' is unknown")

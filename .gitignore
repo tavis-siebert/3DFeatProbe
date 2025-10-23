@@ -4,6 +4,8 @@ __pycache__/
 
 logs/
 test/
+scripts/datasets
+external/*
 
 *.sh
 *.html

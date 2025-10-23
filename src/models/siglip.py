@@ -27,7 +27,8 @@ class SigLIPProcessor(nn.Module):
         if images.max() > 1.0:
             images = images / 255.0
         
-        # use processor to avoid shape mismatches
+        # use HF processor to avoid shape mismatches
+        # TODO: you should pad AFTER normalizing, so maybe use calculate_pad_hw and use the built-in resize of processor
         images = center_pad(images, self.patch_size)
         _, _, h, w = images.shape
         num_patches_h, num_patches_w = h // self.patch_size, w // self.patch_size

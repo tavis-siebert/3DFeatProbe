@@ -2,36 +2,7 @@ import torch
 import torch.nn as nn
 from transformers import ViTMAEModel
 
-from src.utils.image_utils import center_pad
-
-class MAEProcessor(nn.Module):
-    def __init__(self, patch_size: int):
-        super().__init__()
-        self.patch_size = patch_size
-        self.register_buffer("mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
-        self.register_buffer("std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
-    
-    def forward(self, images: torch.Tensor) -> torch.Tensor:
-        """
-        Normalize images before feeding them into DINO models.
-        
-        Args:
-            images (torch.Tensor): Batch of images of shape (B, 3, H, W).
-                Can be in range [0, 255] or [0, 1].
-
-        Returns:
-            torch.Tensor: Normalized images of shape (B, 3, H, W).
-        """
-        # scale to [0, 1] if necessary
-        if images.max() > 1.0:
-            images = images / 255.0
-        
-        # center pad to ensure divisibility w/ patch size
-        images = center_pad(images, self.patch_size)
-
-        # normalie with ImageNet mean, std
-        return (images - self.mean) / self.std
-
+from src.models.processor import BaseProcessor
 
 class MAE(nn.Module):
     """
@@ -47,7 +18,7 @@ class MAE(nn.Module):
         self.patch_size = self.model.config.patch_size
         self.feature_dim = self.model.config.hidden_size
         self.model.config.mask_ratio = 0.0  # disable masking
-        self.processor = MAEProcessor(self.patch_size)
+        self.processor = BaseProcessor(patch_size=self.patch_size, normalize=True)
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         """
