@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from typing import Dict
+from typing import Dict, Tuple
 from transformers import Siglip2VisionModel, AutoProcessor
 
 from src.utils.image_utils import center_pad
@@ -11,7 +11,7 @@ class SigLIPProcessor(nn.Module):
         self.patch_size = patch_size
         self.processor = AutoProcessor.from_pretrained(model_id)
     
-    def forward(self, images: torch.Tensor) -> tuple[Dict, int, int]:
+    def forward(self, images: torch.Tensor) -> Tuple[Dict, int, int]:
         """
         Normalize images before feeding them into DINO models.
         
@@ -66,7 +66,7 @@ class SigLIP2(nn.Module):
         self.feature_dim = self.model.config.hidden_size
         self.processor = SigLIPProcessor(model_id=model_id, patch_size=self.patch_size)
 
-    def forward(self, images: torch.Tensor) -> torch.Tensor:
+    def forward(self, images: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
         Args:
             images (torch.Tensor): Batch of images of shape (B, C, H, W).

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from transformers import ViTMAEModel
+from typing import Dict
 
 from src.models.processors import BaseProcessor
 
@@ -27,7 +28,7 @@ class MAE(nn.Module):
         if self.preprocess_images:
             self.processor = BaseProcessor(patch_size=self.patch_size, normalize=True)
 
-    def forward(self, images: torch.Tensor) -> torch.Tensor:
+    def forward(self, images: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
         Args:
             images (torch.Tensor): Batch of images of shape (B, C, H, W).
