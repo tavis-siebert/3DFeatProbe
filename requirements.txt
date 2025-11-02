@@ -47,7 +47,7 @@ narwhals==2.6.0
 nbformat==5.10.4
 nest-asyncio==1.6.0
 networkx==3.5
-numpy==1.26.4
+numpy
 nvidia-cublas-cu12==12.8.4.1
 nvidia-cuda-cupti-cu12==12.8.90
 nvidia-cuda-nvrtc-cu12==12.8.93

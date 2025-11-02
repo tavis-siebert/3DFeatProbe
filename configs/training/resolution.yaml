@@ -1,0 +1,9 @@
+# Train resolution
+# Default is 518, 518 like VGGT, but run-specific configs can override
+train: (518, 518)
+# Val/Test resolution
+val:
+  blendedmvs: (518, 392)
+  mvs_synth: (518, 294)
+  scannetppv2: (518, 336)
+  eth3d: (518, 336)

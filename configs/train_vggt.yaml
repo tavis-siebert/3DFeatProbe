@@ -1,0 +1,12 @@
+defaults:
+  - machine: local
+  - model: vggt
+  - training: vggt
+  - __self__
+
+output_dir: ${hydra:run.dir}
+# for convenience
+root_data_dir: ${machine.root_data_dir}
+mapanything_metadata_dir: ${machine.mapanything_metadata_dir}
+checkpoints_dir: ${machine.checkpoints_dir}
+logging_dir: ${machine.logging_dir}

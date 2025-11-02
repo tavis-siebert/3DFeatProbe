@@ -1,0 +1,8 @@
+defaults:
+  - default
+
+cvg_dir: "/cluster/project/cvg/students/tsiebert"
+root_data_dir: "${cvg_dir}/datasets"
+mapanything_metadata_dir: "${root_data_dir}/map-anything-dataset/mapanything_dataset_metadata"
+checkpoints_dir: "${cvg_dir}/models"
+logging_dir: "/cluster/home/tsiebert/3DFeatProbe/logs"

@@ -1,0 +1,21 @@
+defaults:
+  - default
+
+# Maximum number of views parameter for the multi-view datasets
+num_views: 4
+
+train:
+  # If True, the number of views can vary from batch to batch.
+  # The maximum number of views is num_views and min is 2
+  variable_num_views: true
+
+# Training dataset
+train_dataset:
+  "+ 80_000 @ ${dataset.blendedmvs_wai.train.dataset_str}
+  + 80_000 @ ${dataset.scannetpp_wai.train.dataset_str}
+  + 80_000 @ ${dataset.mvs_synth_wai.train.dataset_str}"
+# Validation dataset
+test_dataset:
+  "+ 4_000 @ ${dataset.blendedmvs_wai.val.dataset_str}
+  + 4_000 @ ${dataset.scannetpp_wai.val.dataset_str}
+  + 4_000 @ ${dataset.mvs_synth_wai.val.dataset_str}"
