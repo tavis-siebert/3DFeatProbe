@@ -9,8 +9,9 @@ from src.utils.camera import unproject, build_pose_matrix, invert_pose
 from uco3d import UCO3DDataset
 from uco3d.dataset_utils.utils import opencv_cameras_projection_from_uco3d
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
+###########
 ## DEBUG ##
 import random
 import numpy as np

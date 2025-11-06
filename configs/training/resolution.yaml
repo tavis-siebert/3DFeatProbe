@@ -1,5 +1,10 @@
+### Config for default training resolutions
+# To override, either change this file, or create a separate config for your model/experiment
+# and inherit + override this config (see vggt.yaml for an example). 
+# The latter is the cleaner / recommended approach
+
 # Train resolution
-# Default is 518, 518 like VGGT, but run-specific configs can override
+# default is 518, 518 like VGGT, but run-specific configs can override
 train: (518, 518)
 # Val/Test resolution
 val:

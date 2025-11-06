@@ -1,0 +1,3 @@
+# Loss function MUST be defined by top level config
+loss_fn: ???
+loss_config: null

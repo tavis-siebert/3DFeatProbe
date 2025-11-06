@@ -1,9 +1,6 @@
 # String for model factory 
-# (Options: "vggt", "dinov2")
-# TODO: add support for dinov3, mae, clip, etc 
-model_str: ???
+model_id: ???
 # How to normalize the data within WAI dataset
 data_norm_type: ???
 # Model config
-model_config:
-  pretrained_checkpoint_path: null
+model_config: ???

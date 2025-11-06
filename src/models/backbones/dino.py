@@ -11,11 +11,12 @@ class DINOv2(nn.Module):
     DINOv2 model class.
     """
     def __init__(
-            self, 
-            backbone: str="base", 
-            use_timm: bool=False,
-            with_registers=False, 
-            preprocess_images: bool=True):
+        self, 
+        backbone: str="base", 
+        use_timm: bool=False,
+        with_registers=False, 
+        preprocess_images: bool=True
+    ):
         """
         Args:
             backbone (str): Backbone architecture (e.g. "base"). Check models README

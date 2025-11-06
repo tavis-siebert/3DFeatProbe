@@ -10,10 +10,6 @@ train_dataset: ???
 test_dataset: "[null]"
 # Number of workers for dataloader
 num_workers: 8
-# Default resolution for training
-resolution_train: ???
-# Default resolution for validation
-resolution_val: ???
 # Number of views parameter for multi-view datasets
 num_views: 2
 # Use a centered principal point for all images

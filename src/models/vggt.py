@@ -6,6 +6,7 @@
 import torch
 import torch.nn as nn
 from huggingface_hub import PyTorchModelHubMixin 
+import logging
 from typing import Dict
 from vggt.models.aggregator import Aggregator
 from vggt.heads.camera_head import CameraHead
@@ -50,7 +51,7 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
             aggregator_config (Dict, Optional): args to set up custom aggregator (e.g. change model depth, patch embed type).
                                       Default = None (only use original args)
             camera_head_config (Dict, Optional): args to set up custom camera head. Default = None
-            depth_head_config (Dict), Optional: args to set up custom depth head. Default = None
+            depth_head_config (Dict, Optional): args to set up custom depth head. Default = None
             point_head_config (Dict, Optional): args to set up custom point head. Default = None
             track_head_config (Dict, Optional): args to set up custom track head. Default = None
         """
@@ -99,7 +100,7 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
             self.track_head = None
 
     @classmethod
-    def from_pretrained_full(cls, pretrained_id_or_path: str, **kwargs):
+    def from_pretrained(cls, pretrained_id_or_path: str="facebook/VGGT-1B", **kwargs):
         """
         Load pretrained weights for the entire model.
         
@@ -147,8 +148,7 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
             # check patch dimension matches and interpolate otherwise
             if loaded_shape[1] != target_shape[1]:
                 if target_shape[1] - loaded_shape[1] == 1:
-                    #TODO: swap with logger
-                    print("WARNING: received no pos_embed for CLS token. Initializing to zeros. Dwonstream performance might degrade slightly")
+                    logging.warning("Received no pos_embed for CLS token. Initializing to zeros. Dwonstream performance might degrade slightly")
                     checkpoint_state_dict["pos_embed"] = torch.cat((torch.zeros(1, 1, target_shape[-1]), loaded_pos_embed), dim=1)
                 else:
                     original_image_size = checkpoint_config["original_image_size"]
@@ -166,10 +166,8 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
         if missing:
             if missing != ["mask_token"]:   # it's ok to not have masking
                 raise ValueError(f"Missing keys: {missing}")
-            print(f"WARNING: Missing keys: {missing}")
         if unexpected:
-            #TODO: swap with logger
-            print(f"WARNING: Got unexpected keys: {unexpected}")
+            logging.warning(f"Got unexpected keys: {unexpected}")
     
     def forward(self, images: torch.Tensor, query_points: torch.Tensor = None) -> Dict[str, torch.Tensor]:
         """

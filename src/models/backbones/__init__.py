@@ -9,31 +9,17 @@ __all__ = [
     "get_model_from_id"
 ]
 
-def get_model_from_id(model_id, **kwargs):
-    """Factory function to return a model instance based on model_id.
-    See src/models/README.md for a full list of models and their ids
-
-    Args:
-        model_id (str): Format "name/backbone", e.g. "dinov2/base".
-        kwargs: Additional keyword arguments passed to the model constructor.
-    """
-    try:
-        name, backbone = model_id.split('/')
-    except ValueError:
-        raise ValueError(f"Invalid model_id '{model_id}', expected format 'name/backbone'")
-
-    match name.lower():
+def get_backbonel_from_id(model_id, model_cfg):
+    match model_id.lower():
         case "dinov2":
-            return DINOv2(backbone, kwargs.get("with_registers", False))
+            return DINOv2(**model_cfg)
         case "dinov3":
-            return DINOv3(backbone)
+            return DINOv3(**model_cfg)
         case "clip":
-            return CLIP(backbone)
+            return CLIP(**model_cfg)
         case "siglip2":
-            return SigLIP2(backbone)
+            return SigLIP2(**model_cfg)
         case "mae":
-            return MAE(backbone)
-        case "vggt-feature":
-            return VGGTFeatureExtractor(backbone, kwargs.get("layer_type", "all"))
+            return MAE(**model_cfg)
         case _:
-            raise ValueError(f"Model type '{name}' is unknown")
+            raise ValueError(f"Model type '{model_id}' is unknown")

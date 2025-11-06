@@ -2,13 +2,16 @@ defaults:
   - default
 
 # String for model factory
-model_str: "vggt"
+model_id: "vggt"
 # vggt normalizes internally
 data_norm_type: "identity"
+# load the weights from 
+load_pretrained: false
+# load specific patch embed
+pretrained_patch_embed_path: null
+
 # Model config
 model_config:
-  # load specific patch embed
-  pretrained_patch_embed_path: null
   # image size to train on
   # NOTE: can be overriden by training configs
   img_size: 518

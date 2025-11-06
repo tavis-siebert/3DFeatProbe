@@ -1,0 +1,9 @@
+defaults:
+  - default
+
+model_id: "backbones/dinov3"
+# alternatively, specify the Uniception preprocessor and set preprocess_image to false
+data_norm_type: "identity"
+model_config:
+  backbone: "base"
+  preprocess_image: true
