@@ -33,20 +33,34 @@ def build_pose_matrix(R: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
 
 def invert_pose(pose: torch.Tensor) -> torch.Tensor:
     """
-    Return inverse of 3x4 pose matrix
+    Return inverse of 3x4 or 4x4 pose matrix (supports batched input)
 
     Args:
-        pose (torch.Tensor): the camera pose (3, 4)
+        pose (torch.Tensor): the camera pose (..., 3, 4) or (..., 4, 4)
+    Returns:
+        pose inverse (torch.Tensor): the inverse pose of shape (..., 4, 4)
     """
-    pose4 = torch.cat([pose, torch.tensor([0,0,0,1]).unsqueeze(0)], dim=0) # (4,4)
-    R = pose4[:3, :3]
-    t = pose4[:3, 3]
-    R_inv = R.t()
-    t_inv = -R_inv @ t
+    # Convert to 4×4 if needed
+    if pose.shape[-2:] == (3, 4):
+        bottom = torch.tensor([0,0,0,1], dtype=pose.dtype, device=pose.device)
+        bottom = bottom.expand(*pose.shape[:-2], 1, 4)
+        pose4 = torch.cat([pose, bottom], dim=-2)
+    elif pose.shape[-2:] == (4, 4):
+        pose4 = pose
+    else:
+        raise ValueError("Pose must be (..., 3, 4) or (..., 4, 4)")
+
+    R = pose4[..., :3, :3]
+    t = pose4[..., :3, 3]
+
+    R_inv = R.transpose(-1, -2)
+    t_inv = -(R_inv @ t.unsqueeze(-1)).squeeze(-1)
 
     inv = torch.eye(4, dtype=pose4.dtype, device=pose4.device)
-    inv[:3, :3] = R_inv
-    inv[:3, 3] = t_inv
+    inv = inv.expand_as(pose4).clone()
+    inv[..., :3, :3] = R_inv
+    inv[..., :3, 3] = t_inv
+
     return inv
 
 def unproject(

@@ -19,38 +19,38 @@ class Trainer:
         self.model_cfg = cfg.model
         self.train_cfg = cfg.training
 
-        # -- Device and DDP Params
+        # Device and DDP Params
         self.dist_cfg = self.train_cfg.distributed
         self.rank, self.local_rank, self.world_size, self.distributed = init_distributed(self.dist_cfg.backend)
         self._setup_device()
 
-        # -- Checkpointing
+        # Checkpointing
         self.ckpt_cfg = self.train_cfg.checkpoint
         self._setup_checkpointing(self.ckpt_cfg)
 
-        # -- Logging
+        # Logging
         self.log_cfg = self.train_cfg.logging
         self._setup_logging(self.log_cfg)
 
-        # -- Dataset and Dataloaders
+        # Dataset and Dataloaders
         self.train_loader, self.val_loader = None, None
         self._setup_datasets(self.dataset_cfg, self.train_cfg)
 
-        # -- Model
+        # Model
         self.model = None
         self._setup_model(self.model_cfg)
 
-        # -- Loss
+        # Loss
         self.loss = None
         self.loss_cfg = self.train_cfg.loss
         self._setup_loss(self.loss_cfg)
 
-        # -- Optimizer
+        # Optimizer
         self.optims = None
         self.optim_cfg = self.train_cfg.optim
         self._setup_optimizer(self.optim_cfg)
 
-        # -- Training params
+        # Training params
         self.seed = self.train_cfg.seed
         set_seeds(self.seed, self.rank)
 
@@ -59,11 +59,13 @@ class Trainer:
         self.epoch = 0
         self.steps = {"train": 0, "val": 0}
 
-        # -- Load last checkpoint
+        self.eval_freq = self.train_cfg.eval_freq
+
+        # Load last checkpoint
         if self.ckpt_cfg.resume_checkpoint_path:
             self._load_from_checkpoint(self.ckpt_cfg.resume_checkpoint_path)
         
-        # -- DDP model
+        # DDP model
         if self.distributed:
             self.model = nn.parallel.DistributedDataParallel(
                 self.model,
@@ -73,22 +75,22 @@ class Trainer:
             dist.barrier()
 
     #-------------------#
-    #   Class Methods   #
+    #       Setup       #
     #-------------------#
-
-    # Set device
+    # -- Set device
     def _setup_device(self):
         if torch.cuda.is_available():
             self.device = torch.device("cuda", self.local_rank)
         else:
             self.device = torch.device("cpu")
+        logging.info(f"Device set to {self.device.type}")
     
-    # Set up checkpointing
+    # -- Set up checkpointing
     def _setup_checkpointing(self):
         self.ckpt_dir = self.ckpt_cfg.checkpoints_dir
         self.save_freq = self.ckpt_cfg.save_freq
 
-    # Set up logger (supports DDP)
+    # -- Set up logger (supports DDP)
     def _setup_logging(self):
         self.log_dir = self.log_cfg.logging_dir
 
@@ -102,23 +104,23 @@ class Trainer:
         self.train_metrics_to_log = self.log_cfg.metrics_to_log.train
         self.val_metrics_to_log = self.log_cfg.metrics_to_log.val
 
-    # Setup datasets
+    # -- Setup datasets
     def _setup_datasets(self):
         raise NotImplementedError("Must be implemented by subclasses")
     
-    # Setup model
+    # -- Setup model
     def _setup_models(self):
         raise NotImplementedError("Must be implemented by subclasses")
 
-    # Setup loss / criterion
+    # -- Setup loss / criterion
     def _setup_loss(self):
         raise NotImplementedError("Must be implemented by subclasses")
 
-    # Setup optimizer
+    # -- Setup optimizer
     def _setup_optimizer(self):
         raise NotImplementedError("Must be implemented by subclasses")
 
-    # Load training state from previous checkpoint
+    # -- Load training state from previous checkpoint
     def _load_from_checkpoint(self, ckpt_path: str):
         """Loads a checkpoint from the given path to resume training."""
         logging.info("Loading from checkpoint: ", ckpt_path)
@@ -148,3 +150,9 @@ class Trainer:
 
         del checkpoint
     
+    #-------------------#
+    #   Functionality   #
+    #-------------------#
+    # -- Training
+    def train(self):
+        raise NotImplementedError("Must be implemented by subclasses")

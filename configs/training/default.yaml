@@ -15,3 +15,5 @@ max_num_of_imgs_per_gpu: 48
 accum_steps: 1
 # Maximum number of epochs
 max_epochs: 20
+# The frequency (in epochs) to run validation
+eval_freq: 1

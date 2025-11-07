@@ -1,5 +1,5 @@
 checkpoints_dir: ${checkpoints_dir}
-# How many steps between checkpoint saving
-save_freq: 10
+# How many epochs between checkpoint saving
+save_freq: 1
 # path to checkpoint
 resume_checkpoint_path: null
