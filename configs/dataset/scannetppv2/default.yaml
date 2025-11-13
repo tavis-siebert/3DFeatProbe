@@ -20,7 +20,7 @@ train:
   dataset_resolution: ${training.resolution.train}
   principal_point_centered: ${dataset.principal_point_centered}
   aug_crop: 16
-  transform: 'colorjitter+grayscale+gaublur'
+  transform: 'colorjitter+grayscale'
   data_norm_type: ${model.data_norm_type}
   overfit_num_sets: null
   variable_num_views: ${dataset.train.variable_num_views}

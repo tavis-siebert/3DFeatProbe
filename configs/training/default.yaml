@@ -1,12 +1,11 @@
 defaults:
-  - resolution: resolution
-  - logging: logging
-  - checkpoint: checkpoint
-  - distributed: distributed
-  - optim: optim
-  - loss: loss
+  - resolution: default
+  - logging: default
+  - checkpoint: default
+  - distributed: default
+  - optim: default
+  - loss: default
 
-#TODO distribute some into separtate files (e.g. losses, optimizer, distributed)
 # Random Seed
 seed: 42
 # Maximum number of images per GPU (changes based on available GPU memory)

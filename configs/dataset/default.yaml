@@ -1,8 +1,8 @@
 defaults:
-  - mvs_synth: mvs_synth
-  - blendedmvs: blendedmvs
-  - scannetppv2: scannetppv2
-  - eth3d: eth3d
+  - mvs_synth: default
+  - blendedmvs: default
+  - scannetppv2: default
+  - eth3d: default
 
 # Training Set, For example: BlendedMVS(split='train', resolution=(512, 384), transform=...)
 train_dataset: ???
