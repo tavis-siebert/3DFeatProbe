@@ -111,6 +111,7 @@ tzdata==2025.2
 -e git+ssh://git@github.com/facebookresearch/uco3d.git@8f7075dbb3e9b18c33c4038c189815a001e295bc#egg=uco3d
 urllib3==2.5.0
 -e git+ssh://git@github.com/facebookresearch/vggt.git@e56963328b7476e615ce8dda9164d381f8dc07a3#egg=vggt
+wandb
 wcmatch==10.1
 wcwidth==0.2.14
 Werkzeug==3.1.3

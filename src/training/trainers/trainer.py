@@ -1,13 +1,16 @@
+import os
+import logging
 import torch
 import torch.nn as nn
 import torch.distributed as dist
 from omegaconf import DictConfig
 
 from src.training.distributed import init_distributed
+from src.training.gradient_clip import GradientClipper
+from src.training.optimizer import create_optimizer, create_scheduler, OptimizerWrapper
+from src.utils.io import safe_makedirs
 from src.utils.logging import setup_logging
 from src.training.utils import *
-
-# TODO: add checks for null configs on necessary items  
 
 class Trainer:
     """
@@ -19,60 +22,70 @@ class Trainer:
         self.model_cfg = cfg.model
         self.train_cfg = cfg.training
 
-        # Device and DDP Params
+        # Device, DDP Params
         self.dist_cfg = self.train_cfg.distributed
         self.rank, self.local_rank, self.world_size, self.distributed = init_distributed(self.dist_cfg.backend)
+        
+        # Logging
+        self.log_cfg = self.train_cfg.logging
+        self._setup_logging()
+
+        # Device and seed
         self._setup_device()
+
+        self.seed = self.train_cfg.seed
+        set_seeds(self.seed, self.rank)
 
         # Checkpointing
         self.ckpt_cfg = self.train_cfg.checkpoint
-        self._setup_checkpointing(self.ckpt_cfg)
-
-        # Logging
-        self.log_cfg = self.train_cfg.logging
-        self._setup_logging(self.log_cfg)
+        self._setup_checkpointing()
 
         # Dataset and Dataloaders
         self.train_loader, self.val_loader = None, None
-        self._setup_datasets(self.dataset_cfg, self.train_cfg)
+        logging.info("Setting up train and validation sets")
+        self._setup_datasets()
 
         # Model
         self.model = None
-        self._setup_model(self.model_cfg)
+        logging.info(f"Setting up model {self.model_cfg}")
+        self._setup_model()
 
         # Loss
         self.loss = None
         self.loss_cfg = self.train_cfg.loss
-        self._setup_loss(self.loss_cfg)
+        logging.info(f"Setting up loss function: {self.loss_cfg}")
+        self._setup_loss()
 
         # Optimizer
         self.optims = None
         self.optim_cfg = self.train_cfg.optim
-        self._setup_optimizer(self.optim_cfg)
+        self._setup_optimizer()
 
         # Training params
-        self.seed = self.train_cfg.seed
-        set_seeds(self.seed, self.rank)
-
         self.accum_steps = self.train_cfg.accum_steps
         self.max_epochs = self.train_cfg.max_epochs
         self.epoch = 0
         self.steps = {"train": 0, "val": 0}
+        logging.info(f"Model set to train until epoch {self.max_epochs}")
+        logging.info(f"Using {self.accum_steps} gradient accumulation steps")
 
         self.eval_freq = self.train_cfg.eval_freq
 
         # Load last checkpoint
         if self.ckpt_cfg.resume_checkpoint_path:
-            self._load_from_checkpoint(self.ckpt_cfg.resume_checkpoint_path)
+            self.load_from_checkpoint(self.ckpt_cfg.resume_checkpoint_path)
         
         # DDP model
         if self.distributed:
+            logging.info("Wrapping model with DDP")
             self.model = nn.parallel.DistributedDataParallel(
                 self.model,
                 device_ids=[self.local_rank] if self.device.type == "cuda" else [],
                 **self.dist_cfg.ddp_args
             )
             dist.barrier()
+        
+        logging.info("Trainer ready to train!")
 
     #-------------------#
     #       Setup       #
@@ -89,12 +102,13 @@ class Trainer:
     def _setup_checkpointing(self):
         self.ckpt_dir = self.ckpt_cfg.checkpoints_dir
         self.save_freq = self.ckpt_cfg.save_freq
+        logging.info(f"Checkpoints will be saved under {self.ckpt_dir} every {self.save_freq} epoch(s)")
 
     # -- Set up logger (supports DDP)
     def _setup_logging(self):
         self.log_dir = self.log_cfg.logging_dir
 
-        _ = setup_logging(
+        setup_logging(
             __name__,
             self.log_dir,
             rank=self.rank
@@ -109,7 +123,7 @@ class Trainer:
         raise NotImplementedError("Must be implemented by subclasses")
     
     # -- Setup model
-    def _setup_models(self):
+    def _setup_model(self):
         raise NotImplementedError("Must be implemented by subclasses")
 
     # -- Setup loss / criterion
@@ -118,12 +132,46 @@ class Trainer:
 
     # -- Setup optimizer
     def _setup_optimizer(self):
-        raise NotImplementedError("Must be implemented by subclasses")
+        if self.optim_cfg.gradient_clip:
+            self.gradient_clipper = GradientClipper(self.optim_cfg.gradient_clip.module_configs)
+            logging.info("Gradient clipping set")
+        if self.optim_cfg.amp.enabled:
+            self.scaler = torch.amp.GradScaler(device=self.device.type)
+            logging.info("AMP scaling set")
 
+        # freeze submodules
+        if self.optim_cfg.frozen_submodules:
+            logging.info(f"Freezing Submodules {self.optim_cfg.frozen_submodules}") 
+            self.model = freeze_modules(
+                self.model, patterns=self.optim_cfg.frozen_submodules
+            )
+
+        # construct optimizer and schedulers
+        optimizer_cfg = self.optim_cfg.optimizer
+        logging.info(f"Initializing Optimizer: {optimizer_cfg}")
+        optimizer = create_optimizer(self.model, optimizer_cfg.name, **optimizer_cfg.optimizer_config)
+        
+        self.where = 0.0   # 'where' tracks training progress from 0.0 to 1.0 for schedulers
+        lr_sched_cfg, wd_sched_cfg = self.optim_cfg.schedulers.lr, self.optim_cfg.schedulers.weight_decay
+        schedulers = {}
+        if lr_sched_cfg:
+            logging.info(f"Initializing LR Scheduler {lr_sched_cfg}")
+            lr_scheduler = create_scheduler(lr_sched_cfg.name, dict(lr_sched_cfg.scheduler_config))
+            schedulers["lr"] = lr_scheduler
+        if wd_sched_cfg:
+            logging.info(f"Initializing Weight Decay Scheduler {wd_sched_cfg}")
+            wd_scheduler = create_scheduler(wd_sched_cfg.name, dict(wd_sched_cfg.scheduler_config))
+            schedulers["weight_decay"] = wd_scheduler
+
+        self.optims = OptimizerWrapper(optimizer, schedulers)
+
+    #-------------------------#
+    #  Logging/Checkpointing  #
+    #-------------------------#
     # -- Load training state from previous checkpoint
-    def _load_from_checkpoint(self, ckpt_path: str):
+    def load_from_checkpoint(self, ckpt_path: str):
         """Loads a checkpoint from the given path to resume training."""
-        logging.info("Loading from checkpoint: ", ckpt_path)
+        logging.info(f"Loading from checkpoint: {ckpt_path}")
         with open(ckpt_path, "rb") as f:
             checkpoint = torch.load(f, map_location="cpu")
 
@@ -142,13 +190,53 @@ class Trainer:
         # load training progress
         if "epoch" in checkpoint:
             self.epoch = checkpoint["epoch"]
-        self.steps = checkpoint["steps"] if "steps" in checkpoint else {"train": 0, "val": 0}
+        if "steps" in checkpoint:
+            self.steps = checkpoint["steps"] 
 
         # load AMP scaler state if available
         if self.optim_cfg.amp.enabled and "scaler" in checkpoint:
             self.scaler.load_state_dict(checkpoint["scaler"])
 
         del checkpoint
+    
+    def save_checkpoint(self, ckpt_name: str, only_model=False):
+        """
+        Save checkpoint of current training 
+
+        Args:
+            ckpt_name (str): the name of the file. Will be saved to `"<self.ckpt_dir>/<ckpt_name>.pt"`
+            only_model (bool): whether to save only the model. Default is False.
+        """
+        # ensure checkpoint dir exists
+        safe_makedirs(self.ckpt_dir)
+        
+        # save model
+        model = self.model
+        if isinstance(model, nn.parallel.DistributedDataParallel):
+            model = model.module
+
+        checkpoint = {
+            "model": model.state_dict()
+        }
+
+        # save additional args
+        if not only_model:
+            # TODO: are epochs + steps calculate to resume training exactly, or do we assume we start at the next epoch
+            # TODO: add current training time
+            checkpoint["epoch"] = self.epoch
+            checkpoint["steps"] = self.steps
+            checkpoint["optimizer"] = self.optims.optimizer.state_dict()
+            if self.optim_cfg.amp.enabled:
+                checkpoint["scaler"] = self.scaler.state_dict()
+
+        # write checkpoint to path
+        if self.rank == 0:
+            ckpt_path = os.path.join(
+                self.ckpt_dir, f"{ckpt_name}.pt"
+            )
+            logging.info(f"Saving checkpoint at epoch {self.epoch} to {ckpt_path}")
+            with open(ckpt_path, "wb") as f:
+                torch.save(checkpoint, f)
     
     #-------------------#
     #   Functionality   #

@@ -58,12 +58,12 @@ def create_scheduler(
 
         schedulers = []
         for i, sub_scheduler in enumerate(scheduler_objs):
-            name, cfg = sub_scheduler.get("name"), sub_scheduler.get("scheduler_config")
-            if not (name and cfg): 
+            subsched_name, subsched_cfg = sub_scheduler.get("name"), sub_scheduler.get("scheduler_config")
+            if not (subsched_name and subsched_cfg): 
                 raise KeyError(f"Expected keys 'name' and 'scheduler_config' for scheduler object {i}")
             
             schedulers.append(
-                create_scheduler(name, cfg)
+                create_scheduler(subsched_name, subsched_cfg)
             )
         
         lengths, interval_scaling = scheduler_config.get("lengths", None), scheduler_config.get("interval_scaling", None)
