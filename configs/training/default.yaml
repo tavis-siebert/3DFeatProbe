@@ -16,3 +16,7 @@ accum_steps: 1
 max_epochs: 20
 # The frequency (in epochs) to run validation
 eval_freq: 1
+
+# DEBUGGING
+max_train_iters: null
+max_val_iters: null

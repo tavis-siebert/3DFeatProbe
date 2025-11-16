@@ -19,7 +19,7 @@ def main():
         OmegaConf.resolve(cfg)
 
     trainer = VGGTTrainer(cfg)
-    print(vars(trainer))
+    trainer.train()
 
 if __name__ == "__main__":
     main()

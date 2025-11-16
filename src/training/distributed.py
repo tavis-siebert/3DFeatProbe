@@ -27,3 +27,23 @@ def init_distributed(backend: str = None):
 
     return dist_rank, local_rank, world_size, distributed
 
+
+def all_reduce_mean(x):
+    """
+    Compute the mean of a value across all processes in distributed training.
+    
+    Args:
+        x: The value to reduce (typically a scalar)
+        
+    Returns:
+        float: The mean value across all processes
+    """
+    world_size = dist.get_world_size() if dist.is_initialized() else 1
+    if world_size > 1:
+        x_reduce = torch.tensor(x, dtype=torch.float32).cuda()
+        dist.all_reduce(x_reduce, op=dist.ReduceOp.SUM)
+        x_reduce /= world_size
+        return x_reduce.item()
+    else:
+        return x
+

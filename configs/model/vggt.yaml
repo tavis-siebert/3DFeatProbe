@@ -5,9 +5,9 @@ defaults:
 model_id: "vggt"
 # vggt normalizes internally
 data_norm_type: "identity"
-# load the weights from 
+# load the weights from official checkpoint
 load_pretrained: false
-# load specific patch embed
+# load specific patch embed (e.g., your fine-tuned DINOv2)
 pretrained_patch_embed_path: null
 
 # Model config

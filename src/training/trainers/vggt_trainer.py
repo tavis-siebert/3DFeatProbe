@@ -6,11 +6,14 @@ import wandb
 from math import isfinite
 from omegaconf import DictConfig
 from typing import Dict, Union
+from vggt.utils.pose_enc import pose_encoding_to_extri_intri
+from vggt.utils.geometry import unproject_depth_map_to_point_map
 
 from src.datasets.wai_dataset import build_wai_dataloader
 from src.models.vggt import VGGT
 from src.utils.camera import invert_pose
 from src.training.losses.multitask_loss import MultitaskLoss
+from src.training.distributed import all_reduce_mean
 from src.training.utils import *
 from src.training.logging import *
 from .trainer import Trainer
@@ -60,7 +63,7 @@ class VGGTTrainer(Trainer):
             self.model = VGGT.from_pretrained()
         else:
             model_args = self.model_cfg.model_config
-            # check img_size = rain_resolution
+            # check img_size = train_resolution
             train_h, train_w = eval(self.train_cfg.resolution.train)
             if train_h != train_w:
                 raise ValueError(f"VGGT must be trained with square images. Got {(train_h, train_w)}")
@@ -129,7 +132,7 @@ class VGGTTrainer(Trainer):
         Returns:
             expected batch for VGGT input and loss
         """ 
-        def __convert_numpy(arr: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
+        def __convert_from_numpy(arr: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
             if isinstance(arr, np.ndarray):
                 return torch.from_numpy(arr)
             return arr
@@ -141,22 +144,22 @@ class VGGTTrainer(Trainer):
         for view in views:
             # rgb image
             image = view['img'] # [B, 3, H, W]
-            image_batch.append(__convert_numpy(image))
+            image_batch.append(__convert_from_numpy(image))
 
             # depth map
             depthmap = view['depthmap']  # [B, H, W]
-            depth_batch.append(__convert_numpy(depthmap))
+            depth_batch.append(__convert_from_numpy(depthmap))
 
             # mask
             valid_mask = view['valid_mask']  # [B, H, W]
-            valid_mask_batch.append(__convert_numpy(valid_mask))
+            valid_mask_batch.append(__convert_from_numpy(valid_mask))
 
             # camera intrinsics
             intrinsics = view['camera_intrinsics']  # [B, 3, 3]
-            intrinsics_batch.append(__convert_numpy(intrinsics))
+            intrinsics_batch.append(__convert_from_numpy(intrinsics))
 
             # camera pose (ggt expects world2cam)
-            cam2world = __convert_numpy(view['camera_pose']) # [B, 4, 4]
+            cam2world = __convert_from_numpy(view['camera_pose']) # [B, 4, 4]
             world2cam = invert_pose(cam2world)
             pose = world2cam[:, :3, :]  # [B, 3, 4]
             extrinsics_batch.append(pose)
@@ -164,8 +167,8 @@ class VGGTTrainer(Trainer):
             # point maps
             pts3d = view['pts3d']  # [B, H, W, 3]
             pts3d_cam = view["pts3d_cam"]
-            world_pts_batch.append(__convert_numpy(pts3d))
-            cam_pts_batch.append(__convert_numpy(pts3d_cam))
+            world_pts_batch.append(__convert_from_numpy(pts3d))
+            cam_pts_batch.append(__convert_from_numpy(pts3d_cam))
 
         # stack and arrange as (B, num_views, ...)
         image_batch = torch.stack(image_batch, dim=1)
@@ -211,7 +214,7 @@ class VGGTTrainer(Trainer):
             
             self.train_epoch()
 
-            if (self.epoch + 1) % self.save_freq == 0:
+            if (self.epoch + 1) % self.save_freq == 0 and self.rank == 0:
                 ckpt_name = self._create_ckpt_name(f"checkpoint-last_vggt")
                 self.save_checkpoint(ckpt_name)
 
@@ -244,7 +247,13 @@ class VGGTTrainer(Trainer):
         trackers_to_display = [batch_time, data_time, mem, *loss_trackers.values()]
         batch_start_time = time.time()
 
+        max_iters = len(self.train_loader) if self.max_train_iters is None else self.max_train_iters
+
         for data_iter, batch in enumerate(self.train_loader):
+            # debugging
+            if data_iter > max_iters:
+                break
+
             # Measure data loading time
             data_time.update(time.time() - batch_start_time)
             
@@ -286,36 +295,40 @@ class VGGTTrainer(Trainer):
             # Memory tracking
             if torch.cuda.is_available():
                 mem.update(torch.cuda.max_memory_allocated() // 1e9)
-    
-            #TODO: Log to wandb
-            '''
-            if data_iter % self.log_freq == 0 and self.rank == 0:
-                log_dict = {
-                    "train/epoch": self.epoch,
-                    "train/step": self.steps["train"],
-                    "train/lr": self.optims.optimizer.param_groups[0]["lr"],
-                    "train/where": self.where,
-                }
-                for name, meter in loss_meters.items():
-                    log_dict[f"train/{name}"] = meter.avg
-                if self.log_cfg.use_wandb:
-                    wandb.log(log_dict, step=self.steps["train"])
-            '''
 
             # Display metrics for step
             if (data_iter + 1) % self.log_freq == 0:
-                metrics_dict = {tracker.metric_name: tracker.val for tracker in trackers_to_display}
+                # Reduce losses across ranks for logging
+                reduced_losses = {}
+                for name, tracker in loss_trackers.items():
+                    # Use all_reduce_mean to get global average
+                    reduced_loss = all_reduce_mean(tracker.val)
+                    reduced_losses[name] = reduced_loss
 
-                progress_str = f"Train Epoch {self.epoch + 1} [{data_iter + 1}/{len(self.train_loader)}]"
-                metrics_str = " | ".join(f"{k}: {v:.4f}" for k, v in metrics_dict.items())
+                # Display progress (with reduced losses)
+                if self.rank == 0:
+                    metrics_dict = {
+                        "Batch Time": batch_time.val,
+                        "Data Time": data_time.val,
+                        "Mem (GB)": mem.val,
+                        **reduced_losses
+                    }
+                    progress_str = f"Train Epoch {self.epoch + 1} [{data_iter + 1}/{len(self.train_loader)}]"
+                    metrics_str = " | ".join(f"{k}: {v:.4f}" for k, v in metrics_dict.items())
+                    logging.info("%s %s", progress_str, metrics_str)
 
-                logging.info("%s %s", progress_str, metrics_str)
+                    # Log reduced losses to wandb
+                    wandb.log(reduced_losses, step=self.steps['train'] - 1)
 
         # Display final metrics
-        progress_str = f"Train Epoch {self.epoch + 1} - AVG"
-        metrics_dict = {tracker.metric_name: tracker.average for tracker in trackers_to_display}
-        metrics_str = " | ".join(f"{k}: {v:.4f}" for k, v in metrics_dict.items())
-        logging.info("%s %s", progress_str, metrics_str)
+        for tracker in trackers_to_display:
+            tracker.synchronize_between_processes()
+
+        if self.rank == 0:
+            progress_str = f"Train Epoch {self.epoch + 1} - AVG"
+            metrics_dict = {tracker.metric_name: tracker.average for tracker in trackers_to_display}
+            metrics_str = " | ".join(f"{k}: {v:.4f}" for k, v in metrics_dict.items())
+            logging.info("%s %s", progress_str, metrics_str)
 
 
     @torch.no_grad()
@@ -333,9 +346,12 @@ class VGGTTrainer(Trainer):
         loss_trackers = {name: MetricTracker(name) for name in loss_names}
 
         amp_type = torch.bfloat16 if self.optim_cfg.amp.amp_dtype == "bfloat16" else torch.float16
-        
+
         # Validate on each validation dataset (separated unlike training)
         for dataset_name, val_loader in self.val_loader.items():
+            # debugging
+            max_iters = len(val_loader) if self.max_val_iters is None else self.max_val_iters
+
             # track losses per dataset
             for loss_tracker in loss_trackers.values():
                 loss_tracker.reset()
@@ -343,6 +359,10 @@ class VGGTTrainer(Trainer):
             batch_start_time = time.time()
             
             for data_iter, batch in enumerate(val_loader):
+                # debugging
+                if data_iter > max_iters:
+                    break
+
                 # Measure data loading time
                 data_time.update(time.time() - batch_start_time)
                 
@@ -358,7 +378,7 @@ class VGGTTrainer(Trainer):
                         enabled=self.optim_cfg.amp.enabled,
                         dtype=amp_type,
                     ):
-                        loss_dict = self._step(batch, "val", loss_trackers)
+                        _, preds = self._step(batch, "val", loss_trackers)
                 
                 # Track batch inference time
                 batch_time.update(time.time() - batch_start_time)
@@ -367,33 +387,66 @@ class VGGTTrainer(Trainer):
                 # Memory tracking
                 if torch.cuda.is_available():
                     mem.update(torch.cuda.max_memory_allocated() // 1e9)
-
-                #TODO: Log to wandb
-                '''
-                if data_iter % self.log_freq == 0 and self.rank == 0:
-                    log_dict = {
-                        f"val/{dataset_name}/epoch": self.epoch,
-                        f"val/{dataset_name}/step": self.steps["val"],
-                    }
-                    for key, value in loss_dict.items():
-                        if torch.is_tensor(value):
-                            log_dict[f"val/{dataset_name}/{key}"] = value.item()
-                    if self.log_cfg.use_wandb:
-                        wandb.log(log_dict, step=self.steps["val"])
-                '''
             
             # Display losses across dataset
-            progress_str = f"Val Epoch {self.epoch + 1} ({dataset_name}) - AVG"
-            metrics_dict = {tracker.metric_name: tracker.average for tracker in loss_trackers.values()}
+            for tracker in loss_trackers.values():
+                tracker.synchronize_between_processes()
+
+            if self.rank == 0:
+                progress_str = f"Val Epoch {self.epoch + 1} ({dataset_name}) - AVG"
+                metrics_dict = {tracker.metric_name: tracker.average for tracker in loss_trackers.values()}
+                metrics_str = " | ".join(f"{k}: {v:.4f}" for k, v in metrics_dict.items())
+                logging.info("%s %s", progress_str, metrics_str)
+
+                # Log to wandb
+                val_metrics = {f"{name}_{dataset_name}": tracker.average for name, tracker in loss_trackers.items()}
+
+                # only logging visuals for last item of last batch of main process
+                images = batch["images"][-1]  # [S, 3, H, W]
+                pred_depth = preds["depth"][-1].squeeze()  # [S, H, W]
+                extrinsic, intrinsic = pose_encoding_to_extri_intri(preds["pose_enc"][-1], images.shape[-2:])
+
+                if "world_points" in preds:
+                    pred_world_points = preds["world_points"][-1].cpu().numpy()  # [S, H, W, 3]
+                    pred_conf = preds["world_points_conf"][-1].cpu().numpy() # [S, H, W]
+                else:
+                    pred_world_points = unproject_depth_map_to_point_map(pred_depth, extrinsic, intrinsic)
+                    pred_conf = preds["depth_conf"][-1].cpu().numpy()
+                
+                gt_ptc, pred_ptc = create_point_cloud_visualization(
+                    gt_world_points=batch["world_points"][-1].cpu().numpy(),
+                    pred_world_points=pred_world_points,
+                    pred_conf=pred_conf,
+                    valid_masks=batch["point_masks"][-1].cpu().numpy(),
+                    images=images.cpu().numpy(),
+                )
+                
+                depth_visuals = create_depth_grid_visualization(
+                    images=images,
+                    gt_depths=batch["depths"][-1],
+                    pred_depths=pred_depth,
+                    valid_masks=batch["point_masks"][-1]
+                )
+                
+                #TODO: how much nesting does wandb allow?
+                log_dict = {
+                    **val_metrics, 
+                    f"Depths/{dataset_name}": depth_visuals, 
+                    f"PointClouds/{dataset_name}_gt": gt_ptc,
+                    f"PointClouds/{dataset_name}_pred": pred_ptc,
+                }
+                wandb.log(log_dict, step=self.epoch)
+
+        # Display efficiency across validation
+        trackers_to_display = [batch_time, data_time, mem]
+        for tracker in trackers_to_display:
+            tracker.synchronize_between_processes()
+
+        if self.rank == 0:
+            progress_str = f"Val Epoch {self.epoch + 1} - AVG"
+            metrics_dict = {tracker.metric_name: tracker.average for tracker in trackers_to_display}
             metrics_str = " | ".join(f"{k}: {v:.4f}" for k, v in metrics_dict.items())
             logging.info("%s %s", progress_str, metrics_str)
-        
-        # Display efficiency across validation
-        progress_str = f"Val Epoch {self.epoch + 1} - AVG"
-        trackers_to_display = [batch_time, data_time, mem]
-        metrics_dict = {tracker.metric_name: tracker.average for tracker in trackers_to_display}
-        metrics_str = " | ".join(f"{k}: {v:.4f}" for k, v in metrics_dict.items())
-        logging.info("%s %s", progress_str, metrics_str)
 
 
     def _run_steps_on_batch_chunks(
@@ -411,7 +464,8 @@ class VGGTTrainer(Trainer):
         for i, chunked_batch in enumerate(chunked_batches):
             # DDP no_sync for gradient accumulation
             ddp_context = (
-                self.model.no_sync() if i < accum_steps - 1 else contextlib.nullcontext()
+                self.model.no_sync() if (self.distributed and i < accum_steps - 1) 
+                else contextlib.nullcontext()
             )
             
             with ddp_context:
@@ -421,7 +475,7 @@ class VGGTTrainer(Trainer):
                     dtype=amp_type,
                 ):
                     # Forward pass
-                    loss_dict = self._step(chunked_batch, phase, loss_trackers)
+                    loss_dict, _ = self._step(chunked_batch, phase, loss_trackers)
                 
                 loss = loss_dict["objective"]
                 loss_key = f"Loss/{phase}_loss_objective"
@@ -441,7 +495,7 @@ class VGGTTrainer(Trainer):
                 else:
                     loss.backward()
                 
-                loss_trackers[loss_key].update(loss.item(), batch_size)
+                loss_trackers[loss_key].update(loss.item() * accum_steps, batch_size)
 
 
     def _step(self, batch: Dict, phase: str, loss_trackers: Dict[str, MetricTracker]):
@@ -450,6 +504,7 @@ class VGGTTrainer(Trainer):
         
         Returns:
             A dictionary containing the computed losses.
+            A dictionary containing the raw predictions
         """
         # Forward pass
         y_hat = self.model(images=batch["images"])
@@ -459,7 +514,8 @@ class VGGTTrainer(Trainer):
         
         # Update loss trackers
         batch_size = batch["images"].shape[0]
-        for key in self.train_metrics_to_log if phase == "train" else self.val_metrics_to_log:
+        metrics_to_log = self.train_metrics_to_log if phase == "train" else self.val_metrics_to_log
+        for key in metrics_to_log:
             if key in loss_dict:
                 value = loss_dict[key].item() if torch.is_tensor(loss_dict[key]) else loss_dict[key]
                 loss_key = f"Loss/{phase}_{key}"
@@ -467,12 +523,11 @@ class VGGTTrainer(Trainer):
                     loss_trackers[loss_key].update(value, batch_size)
         
         self.steps[phase] += 1
-        return loss_dict
+        return loss_dict, y_hat
     
     #-------------------------#
     #  Logging/Checkpointing  #
     #-------------------------#
-
     def _create_ckpt_name(self, prefix: str):
         patch_embed_path = self.model_cfg.pretrained_patch_embed_path
         if patch_embed_path:

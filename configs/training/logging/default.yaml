@@ -1,4 +1,8 @@
 logging_dir: ${logging_dir}
+# Wandb
+wandb:
+  project: ???
+  entity: ???
 # How many steps between metric logging
 log_freq: 10
 # Metrics to log (model / experiment dependent)

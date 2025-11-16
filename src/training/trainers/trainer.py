@@ -1,4 +1,5 @@
 import os
+import wandb
 import logging
 import torch
 import torch.nn as nn
@@ -18,9 +19,10 @@ class Trainer:
     """
     def __init__(self, cfg: DictConfig):
         # Separate top level configs
-        self.dataset_cfg = cfg.dataset
-        self.model_cfg = cfg.model
-        self.train_cfg = cfg.training
+        self.cfg = cfg
+        self.dataset_cfg = self.cfg.dataset
+        self.model_cfg = self.cfg.model
+        self.train_cfg = self.cfg.training
 
         # Device, DDP Params
         self.dist_cfg = self.train_cfg.distributed
@@ -64,9 +66,15 @@ class Trainer:
         # Training params
         self.accum_steps = self.train_cfg.accum_steps
         self.max_epochs = self.train_cfg.max_epochs
+        self.max_train_iters = self.train_cfg.max_train_iters
+        self.max_val_iters = self.train_cfg.max_val_iters
+
         self.epoch = 0
         self.steps = {"train": 0, "val": 0}
+
         logging.info(f"Model set to train until epoch {self.max_epochs}")
+        if self.max_train_iters is not None: logging.info(f"DEBUG MODE: Each train epoch is {self.max_train_iters} iters")
+        if self.max_val_iters is not None: logging.info(f"DEBUG MODE: Each val epoch is {self.max_val_iters} iters")
         logging.info(f"Using {self.accum_steps} gradient accumulation steps")
 
         self.eval_freq = self.train_cfg.eval_freq
@@ -106,14 +114,22 @@ class Trainer:
 
     # -- Set up logger (supports DDP)
     def _setup_logging(self):
+        # log to file only from main process when using logging lib
         self.log_dir = self.log_cfg.logging_dir
-
         setup_logging(
             __name__,
             self.log_dir,
             rank=self.rank
         )
 
+        if self.rank == 0:
+            wandb.init(
+                entity=self.log_cfg.wandb.entity,
+                project=self.log_cfg.wandb.project,
+                config=self.cfg
+            )
+
+        # logging params
         self.log_freq = self.log_cfg.log_freq
         self.train_metrics_to_log = self.log_cfg.metrics_to_log.train
         self.val_metrics_to_log = self.log_cfg.metrics_to_log.val
@@ -145,6 +161,9 @@ class Trainer:
             self.model = freeze_modules(
                 self.model, patterns=self.optim_cfg.frozen_submodules
             )
+            # inform num trainable params
+            trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+            logging.info(f"Trainable Parameters: {trainable_params:,}")
 
         # construct optimizer and schedulers
         optimizer_cfg = self.optim_cfg.optimizer
@@ -221,8 +240,6 @@ class Trainer:
 
         # save additional args
         if not only_model:
-            # TODO: are epochs + steps calculate to resume training exactly, or do we assume we start at the next epoch
-            # TODO: add current training time
             checkpoint["epoch"] = self.epoch
             checkpoint["steps"] = self.steps
             checkpoint["optimizer"] = self.optims.optimizer.state_dict()
@@ -230,13 +247,12 @@ class Trainer:
                 checkpoint["scaler"] = self.scaler.state_dict()
 
         # write checkpoint to path
-        if self.rank == 0:
-            ckpt_path = os.path.join(
-                self.ckpt_dir, f"{ckpt_name}.pt"
-            )
-            logging.info(f"Saving checkpoint at epoch {self.epoch} to {ckpt_path}")
-            with open(ckpt_path, "wb") as f:
-                torch.save(checkpoint, f)
+        ckpt_path = os.path.join(
+            self.ckpt_dir, f"{ckpt_name}.pt"
+        )
+        logging.info(f"Saving checkpoint at epoch {self.epoch} to {ckpt_path}")
+        with open(ckpt_path, "wb") as f:
+            torch.save(checkpoint, f)
     
     #-------------------#
     #   Functionality   #
