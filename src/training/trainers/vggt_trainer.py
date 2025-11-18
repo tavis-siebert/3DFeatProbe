@@ -41,9 +41,7 @@ class VGGTTrainer(Trainer):
 
         # val datasets using WAI format
         logging.info("Building validation dataset {:s}".format(self.dataset_cfg.test_dataset))
-        val_batch_size = 2 * (
-            self.train_cfg.max_num_of_imgs_per_gpu // self.dataset_cfg.num_views
-        )
+        val_batch_size = self.train_cfg.max_num_of_imgs_per_gpu // self.dataset_cfg.num_views
         self.val_loader = {
             dataset.split("(")[0]: build_wai_dataloader(
                 dataset=dataset,
@@ -60,7 +58,7 @@ class VGGTTrainer(Trainer):
         # initialize VGGT from official checkpoint or model config
         logging.info("Initializing VGGT")
         if self.model_cfg.load_pretrained:
-            self.model = VGGT.from_pretrained()
+            self.model = VGGT.from_pretrained("facebook/VGGT-1B")
         else:
             model_args = self.model_cfg.model_config
             # check img_size = train_resolution
@@ -100,8 +98,12 @@ class VGGTTrainer(Trainer):
             ckpt_config["checkpoint_state_dict"] = state_dict
             ckpt_config["original_image_size"] = 518
         elif "dinov2" in ckpt_path.lower():
-            # assumes a variant of timm DINOv2
-            patch_embed = torch.load(ckpt_path, map_location='cpu')
+            # assumes a variant of timm DINOv2 since we either load its pretrained weights or use our fine-tuned version
+            if "pretrained" in ckpt_path.lower():
+                from src.models.backbones import DINOv2
+                patch_embed = DINOv2(backbone="base", with_registers=True, use_timm=True)
+            else:
+                patch_embed = torch.load(ckpt_path, map_location='cpu')
             state_dict = {
                 k.replace("model.", ""): v for k, v in patch_embed.state_dict().items()
             }
@@ -147,7 +149,7 @@ class VGGTTrainer(Trainer):
             image_batch.append(__convert_from_numpy(image))
 
             # depth map
-            depthmap = view['depthmap']  # [B, H, W]
+            depthmap = view['depthmap']  # [B, H, W, 1]
             depth_batch.append(__convert_from_numpy(depthmap))
 
             # mask
@@ -172,7 +174,7 @@ class VGGTTrainer(Trainer):
 
         # stack and arrange as (B, num_views, ...)
         image_batch = torch.stack(image_batch, dim=1)
-        depth_batch = torch.stack(depth_batch, dim=1)
+        depth_batch = torch.stack(depth_batch, dim=1).squeeze()
         valid_mask_batch = torch.stack(valid_mask_batch, dim=1)
         intrinsics_batch = torch.stack(intrinsics_batch, dim=1)
         extrinsics_batch = torch.stack(extrinsics_batch, dim=1)
@@ -242,6 +244,14 @@ class VGGTTrainer(Trainer):
         # Setup gradient clipping
         if self.optim_cfg.gradient_clip:
             self.gradient_clipper.setup_clipping(self.model)
+
+        # Set epoch for wai dataset samplers
+        if hasattr(self.train_loader, "dataset") and hasattr(self.train_loader.dataset, "set_epoch"):
+            self.train_loader.dataset.set_epoch(self.epoch)
+        if hasattr(self.train_loader, "sampler") and hasattr(self.train_loader.sampler, "set_epoch"):
+            self.train_loader.sampler.set_epoch(self.epoch)
+        if hasattr(self.train_loader, "batch_sampler") and hasattr(self.train_loader.batch_sampler, "set_epoch"):
+            self.train_loader.batch_sampler.set_epoch(self.epoch)
         
         # Training loop
         trackers_to_display = [batch_time, data_time, mem, *loss_trackers.values()]
@@ -251,7 +261,7 @@ class VGGTTrainer(Trainer):
 
         for data_iter, batch in enumerate(self.train_loader):
             # debugging
-            if data_iter > max_iters:
+            if data_iter >= max_iters:
                 break
 
             # Measure data loading time
@@ -355,12 +365,22 @@ class VGGTTrainer(Trainer):
             # track losses per dataset
             for loss_tracker in loss_trackers.values():
                 loss_tracker.reset()
+
+            # set epoch for wai dataset samplers (set to 0 so the order is the same every time for visualization)
+            if hasattr(val_loader, "dataset") and hasattr(val_loader.dataset, "set_epoch"):
+                val_loader.dataset.set_epoch(0)
+            if hasattr(val_loader, "sampler") and hasattr(val_loader.sampler, "set_epoch"):
+                val_loader.sampler.set_epoch(0)
+            if hasattr(val_loader, "batch_sampler") and hasattr(val_loader.batch_sampler, "set_epoch"):
+                val_loader.batch_sampler.set_epoch(0)
             
             batch_start_time = time.time()
             
+            last_batch = None
+            last_preds = None
             for data_iter, batch in enumerate(val_loader):
                 # debugging
-                if data_iter > max_iters:
+                if data_iter >= max_iters:
                     break
 
                 # Measure data loading time
@@ -370,15 +390,16 @@ class VGGTTrainer(Trainer):
                 batch = self._convert_mapa_batch_to_vggt(batch)  # to vggt format
                 batch = self._process_batch(batch)  # normalize
                 batch = move_data_to_device(batch, self.device, non_blocking=True)  # to device
+                last_batch = batch
                 
                 # Forward pass
                 with torch.no_grad():
                     with torch.autocast(
-                        device=self.device.type,
+                        device_type=self.device.type,
                         enabled=self.optim_cfg.amp.enabled,
                         dtype=amp_type,
                     ):
-                        _, preds = self._step(batch, "val", loss_trackers)
+                        _, last_preds = self._step(batch, "val", loss_trackers)
                 
                 # Track batch inference time
                 batch_time.update(time.time() - batch_start_time)
@@ -402,40 +423,42 @@ class VGGTTrainer(Trainer):
                 val_metrics = {f"{name}_{dataset_name}": tracker.average for name, tracker in loss_trackers.items()}
 
                 # only logging visuals for last item of last batch of main process
-                images = batch["images"][-1]  # [S, 3, H, W]
-                pred_depth = preds["depth"][-1].squeeze()  # [S, H, W]
-                extrinsic, intrinsic = pose_encoding_to_extri_intri(preds["pose_enc"][-1], images.shape[-2:])
+                images = last_batch["images"][-1]  # [S, 3, H, W]
+                pred_depth = last_preds["depth"][-1]  # [S, H, W, 1]
+                pose_enc = last_preds["pose_enc"][-1].unsqueeze(0)  # [1, S, 9], pose_encoding_to_extri_intri expects batch dim
+                extrinsic, intrinsic = pose_encoding_to_extri_intri(pose_enc, images.shape[-2:])
+                extrinsic = extrinsic.squeeze(0)  # [S, 3, 4]
+                intrinsic = intrinsic.squeeze(0)  # [S, 3, 3]
 
-                if "world_points" in preds:
-                    pred_world_points = preds["world_points"][-1].cpu().numpy()  # [S, H, W, 3]
-                    pred_conf = preds["world_points_conf"][-1].cpu().numpy() # [S, H, W]
+                if "world_points" in last_preds:
+                    pred_world_points = last_preds["world_points"][-1].cpu().numpy()  # [S, H, W, 3]
+                    pred_conf = last_preds["world_points_conf"][-1].cpu().numpy() # [S, H, W]
                 else:
                     pred_world_points = unproject_depth_map_to_point_map(pred_depth, extrinsic, intrinsic)
-                    pred_conf = preds["depth_conf"][-1].cpu().numpy()
+                    pred_conf = last_preds["depth_conf"][-1].cpu().numpy()
                 
                 gt_ptc, pred_ptc = create_point_cloud_visualization(
-                    gt_world_points=batch["world_points"][-1].cpu().numpy(),
+                    gt_world_points=last_batch["world_points"][-1].cpu().numpy(),
                     pred_world_points=pred_world_points,
                     pred_conf=pred_conf,
-                    valid_masks=batch["point_masks"][-1].cpu().numpy(),
+                    valid_masks=last_batch["point_masks"][-1].cpu().numpy(),
                     images=images.cpu().numpy(),
                 )
                 
                 depth_visuals = create_depth_grid_visualization(
                     images=images,
-                    gt_depths=batch["depths"][-1],
-                    pred_depths=pred_depth,
-                    valid_masks=batch["point_masks"][-1]
+                    gt_depths=last_batch["depths"][-1],
+                    pred_depths=pred_depth.squeeze(),
+                    valid_masks=last_batch["point_masks"][-1]
                 )
                 
-                #TODO: how much nesting does wandb allow?
                 log_dict = {
                     **val_metrics, 
                     f"Depths/{dataset_name}": depth_visuals, 
                     f"PointClouds/{dataset_name}_gt": gt_ptc,
                     f"PointClouds/{dataset_name}_pred": pred_ptc,
                 }
-                wandb.log(log_dict, step=self.epoch)
+                wandb.log(log_dict, step=self.steps['train'] - 1)
 
         # Display efficiency across validation
         trackers_to_display = [batch_time, data_time, mem]
@@ -470,7 +493,7 @@ class VGGTTrainer(Trainer):
             
             with ddp_context:
                 with torch.autocast(
-                    device=self.device.type,
+                    device_type=self.device.type,
                     enabled=self.optim_cfg.amp.enabled,
                     dtype=amp_type,
                 ):
@@ -516,6 +539,8 @@ class VGGTTrainer(Trainer):
         batch_size = batch["images"].shape[0]
         metrics_to_log = self.train_metrics_to_log if phase == "train" else self.val_metrics_to_log
         for key in metrics_to_log:
+            if key == "loss_objective" and phase == "val":
+                key = "objective"
             if key in loss_dict:
                 value = loss_dict[key].item() if torch.is_tensor(loss_dict[key]) else loss_dict[key]
                 loss_key = f"Loss/{phase}_{key}"

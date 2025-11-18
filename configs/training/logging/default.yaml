@@ -1,6 +1,7 @@
 logging_dir: ${logging_dir}
-# Wandb
+# Wandb (MUST be set by top level config)
 wandb:
+  name: ???
   project: ???
   entity: ???
 # How many steps between metric logging

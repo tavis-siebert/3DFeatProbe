@@ -65,7 +65,6 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
             agg_cfg.update(aggregator_config)
 
         self.aggregator = Aggregator(**agg_cfg)
-        self.patch_embed = self.aggregator.patch_embed
 
         if enable_camera:
             cam_cfg = dict(dim_in=2 * embed_dim)
@@ -99,19 +98,6 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
         else:
             self.track_head = None
 
-    @classmethod
-    def from_pretrained(cls, pretrained_id_or_path: str="facebook/VGGT-1B", **kwargs):
-        """
-        Load pretrained weights for the entire model.
-        
-        Example
-            ```
-            pretrained_id = "facebook/VGGT-1B"
-            model = VGGT.from_pretrained(pretrained_id)
-            ```
-        """
-        return cls.from_pretrained(pretrained_id_or_path, **kwargs)
-
     def load_pretrained_patch_embed(self, checkpoint_config: Dict):
         """
         Load pretrained DINOv2 weights into aggregator.patch_embed.
@@ -129,7 +115,7 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
                 (e.g. can't load model with dinov2-large and then load checkpoint from dinov2-base)
             3. The positional embedding will be interpolated to match the image size
         """
-        patch_embed_state_dict = self.patch_embed.state_dict()
+        patch_embed_state_dict = self.aggregator.patch_embed.state_dict()
         checkpoint_state_dict = checkpoint_config["checkpoint_state_dict"]
 
         # handle quirks with timm model
@@ -162,7 +148,7 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
             raise ValueError("Expected argument 'pos_embed' in `checkpoint_state_dict` but key doesn't exist")
 
         # load pretrained checkpoint
-        missing, unexpected = self.patch_embed.load_state_dict(checkpoint_state_dict, strict=False)
+        missing, unexpected = self.aggregator.patch_embed.load_state_dict(checkpoint_state_dict, strict=False)
         if missing:
             if missing != ["mask_token"]:   # it's ok to not have masking
                 raise ValueError(f"Missing keys: {missing}")
@@ -206,7 +192,7 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
 
         predictions = {}
 
-        with torch.autocast(enabled=False):
+        with torch.autocast(device_type=images.device.type, enabled=False):
             if self.camera_head is not None:
                 pose_enc_list = self.camera_head(aggregated_tokens_list)
                 predictions["pose_enc"] = pose_enc_list[-1]  # pose encoding of the last iteration

@@ -1,5 +1,6 @@
 import os
 import wandb
+import string
 import logging
 import torch
 import torch.nn as nn
@@ -122,11 +123,14 @@ class Trainer:
             rank=self.rank
         )
 
+        # setup wandb
         if self.rank == 0:
+            rand_suffix = ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(6))
             wandb.init(
+                name=self.log_cfg.wandb.name + f"_{rand_suffix}",
                 entity=self.log_cfg.wandb.entity,
                 project=self.log_cfg.wandb.project,
-                config=self.cfg
+                config=dict(self.cfg)
             )
 
         # logging params
@@ -161,9 +165,10 @@ class Trainer:
             self.model = freeze_modules(
                 self.model, patterns=self.optim_cfg.frozen_submodules
             )
-            # inform num trainable params
-            trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-            logging.info(f"Trainable Parameters: {trainable_params:,}")
+            
+        # inform num trainable params
+        trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        logging.info(f"Trainable Parameters: {trainable_params:,}")
 
         # construct optimizer and schedulers
         optimizer_cfg = self.optim_cfg.optimizer
@@ -218,13 +223,13 @@ class Trainer:
 
         del checkpoint
     
-    def save_checkpoint(self, ckpt_name: str, only_model=False):
+    def save_checkpoint(self, ckpt_name: str, model_only=False):
         """
         Save checkpoint of current training 
 
         Args:
             ckpt_name (str): the name of the file. Will be saved to `"<self.ckpt_dir>/<ckpt_name>.pt"`
-            only_model (bool): whether to save only the model. Default is False.
+            model_only (bool): whether to save only the model. Default is False.
         """
         # ensure checkpoint dir exists
         safe_makedirs(self.ckpt_dir)
@@ -239,7 +244,7 @@ class Trainer:
         }
 
         # save additional args
-        if not only_model:
+        if not model_only:
             checkpoint["epoch"] = self.epoch
             checkpoint["steps"] = self.steps
             checkpoint["optimizer"] = self.optims.optimizer.state_dict()

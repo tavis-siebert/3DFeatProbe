@@ -2,9 +2,6 @@ defaults:
   - default
 
 optim:
-  optimizer:
-    optimizer_config:
-      lr: 5e-5
   schedulers:
     lr:
       name: CompositeParamScheduler
@@ -13,10 +10,10 @@ optim:
           - name: LinearParamScheduler
             scheduler_config:
               start_value: 1e-8
-              end_value: 5e-5
+              end_value: 1e-4
           - name: CosineParamScheduler
             scheduler_config:
-              start_value: 5e-5
+              start_value: 1e-4
               end_value: 1e-8
         lengths: [0.05, 0.95]
         interval_scaling: ['rescaled', 'rescaled']

@@ -9,7 +9,7 @@ train_dataset: ???
 # Val and/or Test Set (assumes training and benchmarking scripts are separate)
 test_dataset: "[null]"
 # Number of workers for dataloader
-num_workers: 8
+num_workers: 4
 # Number of views parameter for multi-view datasets
 num_views: 2
 # Use a centered principal point for all images

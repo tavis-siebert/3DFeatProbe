@@ -6,8 +6,11 @@ logs/
 test/
 scripts/datasets/
 external/
+wandb/
 
 *.sh
 *.html
 *.jpg
 *.png
+*.key
+*.egg-info

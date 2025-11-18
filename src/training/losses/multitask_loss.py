@@ -44,14 +44,14 @@ class MultitaskLoss(torch.nn.Module):
         loss_dict = {}
         
         # Camera pose loss - if pose encodings are predicted
-        if "pose_enc_list" in predictions:
+        if "pose_enc_list" in predictions and self.camera:
             camera_loss_dict = compute_camera_loss(predictions, batch, **self.camera)   
             camera_loss = camera_loss_dict["loss_camera"] * self.camera["weight"]   
             total_loss = total_loss + camera_loss
             loss_dict.update(camera_loss_dict)
         
         # Depth estimation loss - if depth maps are predicted
-        if "depth" in predictions:
+        if "depth" in predictions and self.depth:
             depth_loss_dict = compute_depth_loss(predictions, batch, **self.depth)
             depth_loss = depth_loss_dict["loss_conf_depth"] + depth_loss_dict["loss_reg_depth"] + depth_loss_dict["loss_grad_depth"]
             depth_loss = depth_loss * self.depth["weight"]
@@ -59,7 +59,7 @@ class MultitaskLoss(torch.nn.Module):
             loss_dict.update(depth_loss_dict)
 
         # 3D point reconstruction loss - if world points are predicted
-        if "world_points" in predictions:
+        if "world_points" in predictions and self.point:
             point_loss_dict = compute_point_loss(predictions, batch, **self.point)
             point_loss = point_loss_dict["loss_conf_point"] + point_loss_dict["loss_reg_point"] + point_loss_dict["loss_grad_point"]
             point_loss = point_loss * self.point["weight"]

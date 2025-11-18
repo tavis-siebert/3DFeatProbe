@@ -8,24 +8,30 @@ defaults:
 
 # -- Training
 training:
-  # uncomment if debugging
-  max_epochs: 2
+  # uncomment / change if memory issues
+  max_num_of_imgs_per_gpu: 24
+  accum_steps: 3
+  resolution:
+    train: (448, 448)
+  # uncomment / change if debugging
+  max_epochs: 3
   max_train_iters: 5
-  max_val_iters: 5
+  max_val_iters: 3
   logging:
-    log_freq: 1
+    log_freq: 1  # set to 1 for debugging
     wandb:
-      project: ???
-      entity: ???
+      name: train-normal_debug
+      project: vggt-train
+      entity: tsiebert
   #optim:
   #  frozen_submodules:
   #  - "aggregator.patch_embed"
   #checkpoint:
-  #  resume_checkpoint_path: ???
+  #. resume_checkpoint_path: /cluster/project/cvg//students/tsiebert/checkpoints/checkpoint-last_vggt-dinov2_pretrained.pt
 
 # -- Model
 model:
-  #pretrained_patch_embed_path: ywyue/FiT3D
+  pretrained_patch_embed_path: dinov2_pretrained # ywyue/FiT3D, TODO: own ft model
   model_config:
     embed_dim: 768
     enable_point: false
