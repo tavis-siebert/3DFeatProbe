@@ -101,7 +101,7 @@ class VGGTTrainer(Trainer):
             # assumes a variant of timm DINOv2 since we either load its pretrained weights or use our fine-tuned version
             if "pretrained" in ckpt_path.lower():
                 from src.models.backbones import DINOv2
-                patch_embed = DINOv2(backbone="base", with_registers=True, use_timm=True)
+                patch_embed = DINOv2(backbone="base", with_registers=True, use_timm=True, preprocess_images=False)
             else:
                 patch_embed = torch.load(ckpt_path, map_location='cpu')
             state_dict = {

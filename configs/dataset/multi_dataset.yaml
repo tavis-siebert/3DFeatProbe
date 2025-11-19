@@ -11,11 +11,11 @@ train:
 
 # Training dataset
 train_dataset:
-  "+ 80_000 @ ${dataset.blendedmvs.train.dataset_str}
-  + 80_000 @ ${dataset.scannetppv2.train.dataset_str}
-  + 80_000 @ ${dataset.mvs_synth.train.dataset_str}"
+  "+ 60_000 @ ${dataset.blendedmvs.train.dataset_str}
+  + 60_000 @ ${dataset.scannetppv2.train.dataset_str}
+  + 40_000 @ ${dataset.mvs_synth.train.dataset_str}"
 # Validation dataset
 test_dataset:
-  "+ 4_000 @ ${dataset.blendedmvs.val.dataset_str}
-  + 4_000 @ ${dataset.scannetppv2.val.dataset_str}
-  + 4_000 @ ${dataset.mvs_synth.val.dataset_str}"
+  "+ 2_000 @ ${dataset.blendedmvs.val.dataset_str}
+  + 2_000 @ ${dataset.scannetppv2.val.dataset_str}
+  + 2_000 @ ${dataset.mvs_synth.val.dataset_str}"
