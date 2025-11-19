@@ -1,0 +1,22 @@
+defaults:
+  - resolution: default
+  - logging: default
+  - checkpoint: default
+  - distributed: default
+  - optim: default
+  - loss: default
+
+# Random Seed
+seed: 42
+# Maximum number of images per GPU (changes based on available GPU memory)
+max_num_of_imgs_per_gpu: 48
+# Use gradient accumulation if OOM issues
+accum_steps: 1
+# Maximum number of epochs
+max_epochs: 20
+# The frequency (in epochs) to run validation
+eval_freq: 1
+
+# DEBUGGING
+max_train_iters: null
+max_val_iters: null

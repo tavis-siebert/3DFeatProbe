@@ -1,0 +1,8 @@
+# Root directory containing all datasets
+root_data_dir: ???
+# Dataset metadata directory
+mapanything_metadata_dir: ???
+# Root directory containing pretrained checkpoints for custom models
+checkpoints_dir: ???
+# Root directory to log experiments
+logging_dir: ???

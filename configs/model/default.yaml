@@ -1,0 +1,6 @@
+# String for model factory 
+model_id: ???
+# How to normalize the data within WAI dataset
+data_norm_type: ???
+# Model config
+model_config: ???

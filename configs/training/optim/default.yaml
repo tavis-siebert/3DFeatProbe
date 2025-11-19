@@ -1,0 +1,27 @@
+
+# Optimizer
+optimizer:
+  # Optimizer to use (e.g., AdamW, Adam, SGD)
+  # case insensitive
+  name: "AdamW"
+  optimizer_config:
+    # learning rate
+    lr: 1e-4
+    # Weight Decay
+    weight_decay: 0.05
+
+# LR Scheduler
+schedulers:
+  lr: null
+  weight_decay: null
+
+# Any submodules to freeze
+frozen_submodules: null
+
+# Automatic mixed precision
+amp:
+  enabled: True
+  amp_dtype: bfloat16
+
+# Gradient clipping
+gradient_clip: null

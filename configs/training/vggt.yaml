@@ -1,0 +1,71 @@
+defaults:
+  - default
+
+optim:
+  schedulers:
+    lr:
+      name: CompositeParamScheduler
+      scheduler_config:
+        schedulers:
+          - name: LinearParamScheduler
+            scheduler_config:
+              start_value: 1e-8
+              end_value: 1e-4
+          - name: CosineParamScheduler
+            scheduler_config:
+              start_value: 1e-4
+              end_value: 1e-8
+        lengths: [0.05, 0.95]
+        interval_scaling: ['rescaled', 'rescaled']
+    weight_decay:
+      name: ConstantParamScheduler
+      scheduler_config:
+        value: 0.05
+  gradient_clip:
+    module_configs:
+    - module_name: ["aggregator"]
+      max_norm: 1.0   
+      norm_type: 2
+    - module_name: ["depth"]
+      max_norm: 1.0   
+      norm_type: 2
+    - module_name: ["camera"]
+      max_norm: 1.0   
+      norm_type: 2
+logging:
+  metrics_to_log:
+    train:
+      - loss_objective
+      - loss_camera
+      - loss_T
+      - loss_R
+      - loss_FL
+      - loss_conf_depth
+      - loss_reg_depth
+      - loss_grad_depth
+    val:
+      - loss_objective
+      - loss_camera
+      - loss_T
+      - loss_R
+      - loss_FL
+      - loss_conf_depth
+      - loss_reg_depth
+      - loss_grad_depth
+loss:
+  loss_fn: "MultitaskLoss"
+  loss_config:
+    camera:
+      weight: 5.0
+      loss_type: "l1"
+    depth:
+      weight: 1.0
+      gradient_loss_fn: "grad" 
+      valid_range: 0.98
+    point: null
+distributed:
+  ddp_args:
+    find_unused_parameters: False
+    gradient_as_bucket_view: True  # Less memory used
+    bucket_cap_mb: 25
+    broadcast_buffers: True

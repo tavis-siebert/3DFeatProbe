@@ -1,6 +1,5 @@
 # 3DFeatProbe
 
 ## TODOs
-- [ ] Access DINOv3 on HFHub and test relevant code
-- [ ] Implement DINO (original)
-- [ ] Handle ConvNext for DINOv3
+- [ ] Update READMEs and documentation
+- [ ] Swapping out VGGT patch_embed for various 2D VFMs like CLIP, SigLIP2, DINOv3. Configs can already load a backbone which is a start

@@ -1,0 +1,40 @@
+defaults:
+  - default
+
+# String for model factory
+model_id: "vggt"
+# vggt normalizes internally
+data_norm_type: "identity"
+# load the weights from official checkpoint
+load_pretrained: false
+# load specific patch embed (e.g., your fine-tuned DINOv2)
+pretrained_patch_embed_path: null
+
+# Model config
+model_config:
+  # image size to train on
+  # NOTE: can be overriden by training configs
+  img_size: 518
+  # patch size
+  patch_size: 14
+  # embed dim
+  embed_dim: 1024
+  # whether to train with a camera head
+  enable_camera: true
+  # whether to train with point head
+  enable_point: true
+  # whether to train with a depth head
+  enable_depth: true
+  # whether to train with a track head
+  enable_track: true
+  # aggregator config (e.g. change num_layers, patch embed type)
+  # null => use vggt default
+  aggregator_config: null
+  # camera head config
+  camera_head_config: null
+  # depth head onfig
+  depth_head_config: null
+  # point head config
+  point_head_config: null
+  # track head config
+  track_head_config: null

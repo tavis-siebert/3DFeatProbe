@@ -1,0 +1,57 @@
+# general
+ROOT: ${root_data_dir}/blendedmvs
+dataset_metadata_dir: ${mapanything_metadata_dir}
+
+# train args
+train:
+  dataset_str:
+    "BlendedMVSWAI(
+      split='${dataset.blendedmvs.train.split}',
+      resolution=${dataset.blendedmvs.train.dataset_resolution},
+      principal_point_centered=${dataset.blendedmvs.train.principal_point_centered},
+      aug_crop=${dataset.blendedmvs.train.aug_crop},
+      transform='${dataset.blendedmvs.train.transform}',
+      data_norm_type='${dataset.blendedmvs.train.data_norm_type}',
+      ROOT='${dataset.blendedmvs.ROOT}',
+      dataset_metadata_dir='${dataset.blendedmvs.dataset_metadata_dir}',
+      overfit_num_sets=${dataset.blendedmvs.train.overfit_num_sets},
+      variable_num_views=${dataset.blendedmvs.train.variable_num_views},
+      num_views=${dataset.blendedmvs.train.num_views},
+      covisibility_thres=${dataset.blendedmvs.train.covisibility_thres})"
+  split: 'train'
+  dataset_resolution: ${training.resolution.train}
+  principal_point_centered: ${dataset.principal_point_centered}
+  aug_crop: 16
+  transform: 'colorjitter+grayscale+gaublur'
+  data_norm_type: ${model.data_norm_type}
+  overfit_num_sets: null
+  variable_num_views: ${dataset.train.variable_num_views}
+  num_views: ${dataset.num_views}
+  covisibility_thres: 0.25
+
+# val args
+val:
+  dataset_str:
+    "BlendedMVSWAI(
+      split='${dataset.blendedmvs.val.split}',
+      resolution=${dataset.blendedmvs.val.dataset_resolution},
+      principal_point_centered=${dataset.blendedmvs.val.principal_point_centered},
+      seed=${dataset.blendedmvs.val.seed},
+      transform='${dataset.blendedmvs.val.transform}',
+      data_norm_type='${dataset.blendedmvs.val.data_norm_type}',
+      ROOT='${dataset.blendedmvs.ROOT}',
+      dataset_metadata_dir='${dataset.blendedmvs.dataset_metadata_dir}',
+      overfit_num_sets=${dataset.blendedmvs.val.overfit_num_sets},
+      variable_num_views=${dataset.blendedmvs.val.variable_num_views},
+      num_views=${dataset.blendedmvs.val.num_views},
+      covisibility_thres=${dataset.blendedmvs.val.covisibility_thres})"
+  split: 'val'
+  dataset_resolution: ${training.resolution.val.blendedmvs}
+  principal_point_centered: ${dataset.principal_point_centered}
+  seed: 777
+  transform: 'imgnorm'
+  data_norm_type: ${model.data_norm_type}
+  overfit_num_sets: null
+  variable_num_views: ${dataset.val.variable_num_views}
+  num_views: ${dataset.num_views}
+  covisibility_thres: 0.25

@@ -1,0 +1,14 @@
+logging_dir: ${logging_dir}
+# Wandb (MUST be set by top level config)
+wandb:
+  name: ???
+  project: ???
+  entity: ???
+# How many steps between metric logging
+log_freq: 10
+# Metrics to log (model / experiment dependent)
+metrics_to_log:
+  train:
+    - "loss_objective"
+  val:
+    - "loss_objective"
