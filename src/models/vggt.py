@@ -8,11 +8,23 @@ import torch.nn as nn
 from huggingface_hub import PyTorchModelHubMixin 
 import logging
 from typing import Dict
+
+from mapanything.utils.geometry import (
+    convert_ray_dirs_depth_along_ray_pose_trans_quats_to_pointmap,
+    convert_z_depth_to_depth_along_ray,
+    depthmap_to_camera_frame,
+    get_rays_in_camera_frame,
+)
+
+from vggt.utils.rotation import mat_to_quat
+from vggt.utils.pose_enc import pose_encoding_to_extri_intri
+
 from vggt.models.aggregator import Aggregator
 from vggt.heads.camera_head import CameraHead
 from vggt.heads.dpt_head import DPTHead
 from vggt.heads.track_head import TrackHead
 
+from src.utils.camera import *
 from src.models.utils import interpolate_positional_embeddings
 
 class VGGT(nn.Module, PyTorchModelHubMixin):
@@ -224,3 +236,93 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
             predictions["images"] = images  # store the images for visualization during inference
 
         return predictions
+    
+    def convert_preds_to_mapa(self, preds: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """
+        Convert model predictions to MAP-A format.
+
+        Args:
+            preds (Dict[str, torch.Tensor]): A dictionary containing the following predictions:
+                - pose_enc (torch.Tensor): Camera pose encoding with shape [B, S, 9] (from the last iteration)
+                - depth (torch.Tensor): Predicted depth maps with shape [B, S, H, W, 1]
+                - depth_conf (torch.Tensor): Confidence scores for depth predictions with shape [B, S, H, W]
+                - world_points (torch.Tensor): 3D world coordinates for each pixel with shape [B, S, H, W, 3]
+                - world_points_conf (torch.Tensor): Confidence scores for world points with shape [B, S, H, W]
+                - images (torch.Tensor): Original input images, preserved for visualization
+
+                If query_points is provided, also includes:
+                - track (torch.Tensor): Point tracks with shape [B, S, N, 2] (from the last iteration), in pixel coordinates
+                - vis (torch.Tensor): Visibility scores for tracked points with shape [B, S, N]
+                - conf (torch.Tensor): Confidence scores for tracked points with shape [B, S, N]
+
+        Returns:
+            List[dict]: A list containing the final predictions for all N views in mapanything format.
+        """
+        if not ("pose_enc" in preds and "depth" in preds):
+            raise ValueError("Need at least camera and depth predictions to convert to map-anything format")
+        _, num_views, H, W = preds["images"].shape
+
+        pose_enc = preds["pose_enc"]
+        extrinsic, intrinsic = pose_encoding_to_extri_intri(
+            pose_enc, (H, W)
+        )
+        depth_map = preds["depth"]
+        depth_conf = preds["depth_conf"] 
+
+        res = []
+        for view_idx in range(num_views):
+            curr_view_extrinsic = extrinsic[:, view_idx, ...]
+            curr_view_extrinsic = invert_pose(curr_view_extrinsic)
+            curr_view_intrinsic = intrinsic[:, view_idx, ...]
+
+            curr_view_depth_z = depth_map[:, view_idx, ...]
+            curr_view_depth_z = curr_view_depth_z.squeeze(-1)
+            curr_view_confidence = depth_conf[:, view_idx, ...]
+
+            # get the camera frame pointmaps
+            #TODO: if point head, use those points
+            curr_view_pts3d_cam, _ = depthmap_to_camera_frame(
+                curr_view_depth_z, curr_view_intrinsic
+            )
+
+            # convert the extrinsics to quaternions and translations
+            curr_view_cam_translations = curr_view_extrinsic[..., :3, 3]
+            curr_view_cam_quats = mat_to_quat(curr_view_extrinsic[..., :3, :3])
+
+            # Convert the z depth to depth along ray
+            curr_view_depth_along_ray = convert_z_depth_to_depth_along_ray(
+                curr_view_depth_z, curr_view_intrinsic
+            )
+            curr_view_depth_along_ray = curr_view_depth_along_ray.unsqueeze(-1)
+
+            # Get the ray directions on the unit sphere in the camera frame
+            _, curr_view_ray_dirs = get_rays_in_camera_frame(
+                curr_view_intrinsic, H, W, normalize_to_unit_sphere=True
+            )
+
+            # Get the pointmaps
+            curr_view_pts3d = (
+                convert_ray_dirs_depth_along_ray_pose_trans_quats_to_pointmap(
+                    curr_view_ray_dirs,
+                    curr_view_depth_along_ray,
+                    curr_view_cam_translations,
+                    curr_view_cam_quats,
+                )
+            )
+
+            # Append the outputs to the result list
+            res.append(
+                {
+                    "pts3d": curr_view_pts3d,
+                    "pts3d_cam": curr_view_pts3d_cam,
+                    "ray_directions": curr_view_ray_dirs,
+                    "depth_along_ray": curr_view_depth_along_ray,
+                    "cam_trans": curr_view_cam_translations,
+                    "cam_quats": curr_view_cam_quats,
+                    "conf": curr_view_confidence,
+                }
+            )
+            
+        return res
+
+            

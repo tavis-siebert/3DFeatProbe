@@ -62,7 +62,7 @@ class VGGTTrainer(Trainer):
         else:
             model_args = self.model_cfg.model_config
             # check img_size = train_resolution
-            train_h, train_w = eval(self.train_cfg.resolution.train)
+            train_h, train_w = eval(self.dataset_cfg.resolution.train)
             if train_h != train_w:
                 raise ValueError(f"VGGT must be trained with square images. Got {(train_h, train_w)}")
             if train_h != model_args.img_size:

@@ -3,7 +3,7 @@ defaults:
   - machine: local
   - model: vggt
   - training: vggt
-  - dataset: multi_dataset
+  - dataset: multi_dataset_train
   - _self_
 
 # -- Training

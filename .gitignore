@@ -3,6 +3,7 @@
 __pycache__/
 
 logs/
+results/
 test/
 scripts/datasets/
 external/
