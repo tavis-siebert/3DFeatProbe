@@ -1,4 +1,4 @@
-ROOT: ${root_data_dir}/scannetppv2
+ROOT: ${root_data_dir}/scannetppv2_wai
 dataset_metadata_dir: ${mapanything_metadata_dir}
 
 train:

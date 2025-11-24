@@ -1,5 +1,5 @@
 # general
-ROOT: ${root_data_dir}/eth3d
+ROOT: ${root_data_dir}/eth3d_wai
 dataset_metadata_dir: ${mapanything_metadata_dir}
 
 # test

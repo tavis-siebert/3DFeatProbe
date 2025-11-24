@@ -1,5 +1,5 @@
 # general
-ROOT: ${root_data_dir}/blendedmvs
+ROOT: ${root_data_dir}/blendedmvs_wai
 dataset_metadata_dir: ${mapanything_metadata_dir}
 
 # train args

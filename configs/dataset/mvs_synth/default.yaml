@@ -1,5 +1,5 @@
 # general
-ROOT: ${root_data_dir}/mvs_synth
+ROOT: ${root_data_dir}/mvs_synth_wai
 dataset_metadata_dir: ${mapanything_metadata_dir}
 
 # train args
