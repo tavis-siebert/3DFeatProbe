@@ -18,13 +18,13 @@ import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 from omegaconf import DictConfig, OmegaConf
-from mapanything.datasets import get_test_many_ar_data_loader
 from mapanything.models import init_model
 from mapanything.utils.metrics import (
     l2_distance_of_unit_ray_directions_to_angular_error,
 )
 from mapanything.utils.misc import StreamToLogger
 
+from src.datasets import build_wai_dataloader
 from src.models.vggt import VGGT
 
 log = logging.getLogger(__name__)
@@ -57,31 +57,6 @@ def get_all_info_for_metric_computation(batch, preds):
     }
 
     return gt_info, pr_info
-
-def build_dataset(dataset, batch_size, num_workers):
-    """
-    Builds data loaders for testing.
-
-    Args:
-        dataset: Dataset specification string.
-        batch_size: Number of samples per batch.
-        num_workers: Number of worker processes for data loading.
-
-    Returns:
-        DataLoader: PyTorch DataLoader configured for the specified dataset.
-    """
-    print("Building data loader for dataset: ", dataset)
-    loader = get_test_many_ar_data_loader(
-        dataset,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        pin_mem=True,
-        drop_last=False,
-    )
-
-    print("Dataset length: ", len(loader))
-    return loader
-
 
 @torch.no_grad()
 def benchmark(args):
@@ -122,8 +97,9 @@ def benchmark(args):
     # Init Test Datasets and Dataloaders
     print("Building test dataset {:s}".format(args.dataset.test_dataset))
     data_loaders = {
-        dataset.split("(")[0]: build_dataset(
-            dataset, args.batch_size, args.dataset.num_workers
+        dataset.split("(")[0]: build_wai_dataloader(
+            dataset=dataset, num_workers=args.dataset.num_workers, test=True, 
+            multi_res=True, batch_size=args.batch_size, 
         )
         for dataset in args.dataset.test_dataset.split("+")
         if "(" in dataset
@@ -143,6 +119,7 @@ def benchmark(args):
         model = VGGT(**model_cfg.model_config)
         
     model.to(device)  # Move model to device
+    model.eval()
 
     checkpoint_path = args.checkpoint_path
     if checkpoint_path:
@@ -200,16 +177,15 @@ def benchmark(args):
                     view[name] = view[name].to(device, non_blocking=True)
 
             # Run model inference
-            # Length of preds is equal to the number of views
+            img_list = [view["img"] for view in batch]
+            images = torch.stack(img_list, dim=1)
+            # length of preds is equal to the number of views
             with torch.autocast("cuda", enabled=bool(args.amp), dtype=amp_dtype):
-                preds = model(batch)
+                preds = model(images)
                 preds = model.convert_preds_to_mapa(preds)
 
             # Get all the information needed to compute the metrics
-            gt_info, pr_info = get_all_info_for_metric_computation(
-                batch,
-                preds,
-            )
+            gt_info, pr_info = get_all_info_for_metric_computation(batch, preds)
 
             # Loop over each set in the batch and compute the metrics across all views
             batch_size = batch[0]["img"].shape[0]

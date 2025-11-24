@@ -127,7 +127,7 @@ def depthmap_to_world_coords(
 
     Args:
         intrinsics (torch.Tensor): Camera intrinsics per view (N, 3, 3)
-        poses (torch.Tensor): (Inverted i.e. cam-2-wolrd) camera pose per view (N, 4, 4)
+        poses (torch.Tensor): Inverted (i.e. cam-2-wolrd) camera pose per view (N, 4, 4)
         depth_maps (torch.Tensor): Depth maps per view (N, H, W)
         metric_depth (bool): If True, depth maps are in mm 
     Returns:
