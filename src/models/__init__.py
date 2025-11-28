@@ -15,9 +15,12 @@ def get_model_from_model_id(model_id: str, model_cfg: Dict) -> nn.Module:
         model_id (str): should be in fromat model_type/...
         model_cfg (Dict): the model config defining parameters and architecture specifics
     """
-    model_type = model_id.split('/')[0]
+    split = model_id.split('/')
+    model_type = split[0]
     match model_type.lower():
         case "backbone":
-            return get_backbonel_from_id('/'.join(model_id[1:]), model_cfg)
+            return get_backbonel_from_id('/'.join(split[1:]), model_cfg)
         case "vggt":
             return VGGT(**model_cfg)
+        case _:
+            raise ValueError(f"Unknown model type: {model_type} for model id: {model_id}")
