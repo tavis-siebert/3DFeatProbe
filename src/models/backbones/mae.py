@@ -3,9 +3,10 @@ import torch.nn as nn
 from transformers import ViTMAEModel
 from typing import Dict
 
+from .base import FeatureBackbone
 from src.models.processors import BaseProcessor
 
-class MAE(nn.Module):
+class MAE(FeatureBackbone):
     """
     Wrapper for ViT-MAE encoder to produce dense patch features
     """
@@ -28,17 +29,18 @@ class MAE(nn.Module):
         if self.preprocess_images:
             self.processor = BaseProcessor(patch_size=self.patch_size, normalize=True)
 
-    def forward(self, images: torch.Tensor) -> Dict[str, torch.Tensor]:
+    def forward_features(self, images: torch.Tensor, unflatten_patches: bool=False) -> Dict[str, torch.Tensor]:
         """
         Args:
             images (torch.Tensor): Batch of images of shape (B, C, H, W).
-
+            unflatten_patches (bool): Whether the patch embeddings are returned as a contiguous sequence 
+                                    of patches or a 2D spatial map. Default is flattened (False).
+        
         Returns:
             output_dict (Dict[str, torch.Tensor]): convenient views of last hidden states for downstream use
-                "full_embeds": the last hidden state in full (including CLS and possible register or other tokens)
-                "cls_token": the CLS token for classification or semantic tasks
-                "patch_embeds": the patch embeddings as a 2D spatial map.
-                                We return the 2D view as it's easier to flatten later than unflatten without knowledge of num_patches in H, W
+                "x_norm": the last hidden state in full (including CLS and possible register or other tokens)
+                "x_norm_clstoken": the CLS token for classification or semantic tasks
+                "x_norm_patchtokens": the patch embeddings
         """
         if self.preprocess_images:
             images = self.processor(images)
@@ -49,10 +51,14 @@ class MAE(nn.Module):
 
         outputs = self.model(pixel_values=images, interpolate_pos_encoding=True)
         last_hidden_states = outputs.last_hidden_state
+
+        patch_embeds = last_hidden_states[:, -num_patches:, :]
+        if unflatten_patches:
+            patch_embeds = patch_embeds.unflatten(1, (num_patches_h, num_patches_w))
         
         output_dict = {
-            "full_embeds": last_hidden_states,
-            "cls_token": last_hidden_states[:, 0],
-            "patch_embeds": last_hidden_states[:, -num_patches:, :].unflatten(1, (num_patches_h, num_patches_w))
+            "x_norm": last_hidden_states,
+            "x_norm_clstoken": last_hidden_states[:, 0],
+            "x_norm_patchtokens": patch_embeds
         }
         return output_dict

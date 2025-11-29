@@ -8,6 +8,7 @@ test/
 scripts/datasets/
 external/
 wandb/
+src/models/backbones/siglip.py
 
 *.sh
 *.html

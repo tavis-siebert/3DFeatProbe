@@ -5,9 +5,10 @@ import math
 from typing import Dict
 from transformers import AutoModel
 
+from .base import FeatureBackbone
 from src.models.processors import BaseProcessor
 
-class DINOv2(nn.Module):
+class DINOv2(FeatureBackbone):
     """
     DINOv2 model class.
     """
@@ -185,7 +186,7 @@ class DINOv2(nn.Module):
             "masks": masks,
         }
 
-    def forward(self, images: torch.Tensor, unflatten_patches: bool=False) -> Dict[str, torch.Tensor]:
+    def forward_features(self, images: torch.Tensor, unflatten_patches: bool=False) -> Dict[str, torch.Tensor]:
         """
         Args:
             images (torch.Tensor): Batch of images of shape (B, C, H, W).
@@ -228,7 +229,7 @@ class DINOv2(nn.Module):
         return output_dict
     
 
-class DINOv3(nn.Module):
+class DINOv3(FeatureBackbone):
     """
     DINOv3 model class.
     """
@@ -266,7 +267,7 @@ class DINOv3(nn.Module):
         if self.preprocess_images:
             self.processor = BaseProcessor(patch_size=self.patch_size, normalize=True)
 
-    def forward(self, images: torch.Tensor, unflatten_patches: bool=False) -> Dict[str, torch.Tensor]:
+    def forward_features(self, images: torch.Tensor, unflatten_patches: bool=False) -> Dict[str, torch.Tensor]:
         """
         Args:
             images (torch.Tensor): Batch of images of shape (B, C, H, W).

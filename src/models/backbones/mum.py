@@ -2,10 +2,11 @@ import torch
 import torch.nn as nn
 from typing import Dict
 
+from .base import FeatureBackbone
 from src.models.processors import BaseProcessor
 from external.mum.mum import mum_vitl16
 
-class MuMVisionTransformer(nn.Module):
+class MuMVisionTransformer(FeatureBackbone):
     """
     Convenience wrapper to extract features from MuM Encoder.
     See https://github.com/davnords/mum# for their awesome work
@@ -22,7 +23,7 @@ class MuMVisionTransformer(nn.Module):
         if preprocess_images:
             self.proecessor = BaseProcessor(patch_size=self.patch_size, normalize=True)
 
-    def forward(self, images: torch.Tensor, unflatten_patches: bool=False) -> Dict[str, torch.Tensor]:
+    def forward_features(self, images: torch.Tensor, unflatten_patches: bool=False) -> Dict[str, torch.Tensor]:
         """
         Args:
             images (torch.Tensor): Batch of images of shape (B, C, H, W).
