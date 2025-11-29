@@ -9,25 +9,28 @@ Script to benchmark the image calibration performance
 
 import json
 import logging
-import os
 import sys
+import os
 import warnings
 from pathlib import Path
-import hydra
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
-from omegaconf import DictConfig, OmegaConf
 from mapanything.models import init_model
 from mapanything.utils.metrics import (
     l2_distance_of_unit_ray_directions_to_angular_error,
 )
-from mapanything.utils.misc import StreamToLogger
 
 from src.datasets import build_wai_dataloader
 from src.models.vggt import VGGT
 
 log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+handler.setFormatter(formatter)
+log.addHandler(handler)
 
 
 def get_all_info_for_metric_computation(batch, preds):
@@ -60,12 +63,12 @@ def get_all_info_for_metric_computation(batch, preds):
 
 @torch.no_grad()
 def benchmark(args):
-    print("Output Directory: " + args.output_dir)
+    log.info("Output Directory: " + args.output_dir)
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
-    print("job dir: {}".format(os.path.dirname(os.path.realpath(__file__))))
-    print("{}".format(args).replace(", ", ",\n"))
+    log.info("job dir: {}".format(os.path.dirname(os.path.realpath(__file__))))
+    log.info("{}".format(args).replace(", ", ",\n"))
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(device)
@@ -95,7 +98,7 @@ def benchmark(args):
         amp_dtype = torch.float32
 
     # Init Test Datasets and Dataloaders
-    print("Building test dataset {:s}".format(args.dataset.test_dataset))
+    log.info("Building test dataset {:s}".format(args.dataset.test_dataset))
     data_loaders = {
         dataset.split("(")[0]: build_wai_dataloader(
             dataset=dataset, num_workers=args.dataset.num_workers, test=True, 
@@ -123,14 +126,18 @@ def benchmark(args):
 
     checkpoint_path = args.checkpoint_path
     if checkpoint_path:
-        print("Loading from checkpoint: ", checkpoint_path)
+        log.info("Loading from checkpoint: ", checkpoint_path)
         with open(checkpoint_path, "rb") as f:
             checkpoint = torch.load(f, map_location="cpu")
         model_state_dict = checkpoint["model"] if "model" in checkpoint else checkpoint
         missing, unexpected = model.load_state_dict(
             model_state_dict, strict=False
         )
-        print(f"Model state loaded. Missing keys: {missing or 'None'}. Unexpected keys: {unexpected or 'None'}.")
+        if missing:
+            raise ValueError(f"Missing keys: {missing}")
+        if unexpected:
+            logging.warning(f"Got unexpected keys: {unexpected}")
+            
         del checkpoint
 
     # Create dictionary to keep track of the results across different benchmarking datasets
@@ -138,7 +145,7 @@ def benchmark(args):
 
     # Loop over the benchmarking datasets
     for benchmark_dataset_name, data_loader in data_loaders.items():
-        print("Benchmarking dataset: ", benchmark_dataset_name)
+        log.info("Benchmarking dataset: ", benchmark_dataset_name)
         data_loader.dataset.set_epoch(0)
 
         # Create dictionary to keep track of the results across different scenes
@@ -250,10 +257,10 @@ def benchmark(args):
         ) as f:
             json.dump(across_dataset_results, f, indent=4)
 
-        # Print the average results across all scenes
-        print("Average results across all scenes for dataset: ", benchmark_dataset_name)
+        # log.info the average results across all scenes
+        log.info("Average results across all scenes for dataset: ", benchmark_dataset_name)
         for metric in across_dataset_results.keys():
-            print(f"{metric}: {across_dataset_results[metric]}")
+            log.info(f"{metric}: {across_dataset_results[metric]}")
 
         # Add the average result to the per dataset result dictionary
         per_dataset_results[benchmark_dataset_name] = across_dataset_results
@@ -267,30 +274,12 @@ def benchmark(args):
         average_results[metric] = np.mean(metric_values).item()
     per_dataset_results["Average"] = average_results
 
-    # Print the average results across all datasets
-    print("Benchmarking Done! ...")
-    print("Average results across all datasets:")
+    # log.info the average results across all datasets
+    log.info("Benchmarking Done! ...")
+    log.info("Average results across all datasets:")
     for metric in average_results.keys():
-        print(f"{metric}: {average_results[metric]}")
+        log.info(f"{metric}: {average_results[metric]}")
 
     # Save the per dataset results to a json file
     with open(os.path.join(args.output_dir, "per_dataset_results.json"), "w") as f:
         json.dump(per_dataset_results, f, indent=4)
-
-#TODO: move this to a proper script
-@hydra.main(
-    version_base=None, config_path="../../configs", config_name="calibration_benchmark"
-)
-def execute_benchmarking(cfg: DictConfig):
-    # Allow the config to be editable
-    cfg = OmegaConf.structured(OmegaConf.to_yaml(cfg))
-
-    # Redirect stdout and stderr to the logger
-    sys.stdout = StreamToLogger(log, logging.INFO)
-    sys.stderr = StreamToLogger(log, logging.ERROR)
-
-    # Run the testing
-    benchmark(cfg)
-
-if __name__ == "__main__":
-    execute_benchmarking()  # noqa

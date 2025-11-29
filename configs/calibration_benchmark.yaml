@@ -2,6 +2,7 @@ defaults:
   - machine: local
   - model: vggt
   - dataset: benchmark_calibration
+  - _self_
 
 ### Benchmarking args
 seed: 0

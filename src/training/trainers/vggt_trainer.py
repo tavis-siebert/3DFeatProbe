@@ -89,13 +89,8 @@ class VGGTTrainer(Trainer):
             ckpt_path (str): the torch hub or local path to the dinov2 weights that will be used to initialize VGGT's patch_embed
         """
         ckpt_config = {}
-        if "fit3d" in ckpt_path.lower():
-            patch_embed = torch.hub.load("ywyue/FiT3D", "dinov2_base_fine")
-            state_dict = patch_embed.state_dict()
-            ckpt_config["checkpoint_state_dict"] = state_dict
-            ckpt_config["original_image_size"] = 518
-        elif "dinov2" in ckpt_path.lower():
-            # assumes a variant of timm DINOv2 since we either load its pretrained weights or use our fine-tuned version
+        if "dinov2" in ckpt_path.lower():
+            # NOTE: assumes a variant of timm DINOv2 
             if "pretrained" in ckpt_path.lower():
                 from src.models.backbones import DINOv2
                 patch_embed = DINOv2(backbone="base", with_registers=True, use_timm=True, preprocess_images=False)

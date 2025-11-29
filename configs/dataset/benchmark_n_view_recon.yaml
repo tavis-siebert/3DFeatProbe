@@ -16,5 +16,5 @@ resolution:
 # ETH3D: 13 scenes
 # ScanNet++V2: 30 scenes
 test_dataset:
-  "+ 130 @ ${dataset.eth3d_wai.test.dataset_str}
-  + 300 @ ${dataset.scannetpp_wai.test.dataset_str}"
+  "+ 130 @ ${dataset.eth3d.test.dataset_str}
+  + 300 @ ${dataset.scannetppv2.test.dataset_str}"
