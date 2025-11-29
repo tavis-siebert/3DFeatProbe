@@ -1,4 +1,4 @@
-
+from .base import FeatureBackbone
 from .dino import DINOv2, DINOv3
 from .clip import CLIP
 from .siglip import SigLIP2
@@ -7,7 +7,7 @@ from .mum import MuMVisionTransformer
 
 __all__ = [
     "DINOv2", "DINOv3", "CLIP", "SigLIP2", "MAE", "MuMVisionTransformer"
-    "get_model_from_id"
+    "FeatureBackbone", "get_model_from_id"
 ]
 
 def get_backbonel_from_id(model_id, model_cfg):

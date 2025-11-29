@@ -4,5 +4,4 @@ defaults:
 model_id: backbone/mumvisiontransformer
 data_norm_type: "identity"
 model_config:
-  pretrained: true
   preprocess_images: true

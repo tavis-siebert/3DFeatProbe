@@ -11,14 +11,13 @@ class MuMVisionTransformer(FeatureBackbone):
     Convenience wrapper to extract features from MuM Encoder.
     See https://github.com/davnords/mum# for their awesome work
     """
-    def __init__(self, pretrained: bool=True, preprocess_images: bool=True, **kwargs):
+    def __init__(self, preprocess_images: bool=True, **kwargs):
         """
         Args:
-            pretrained (bool): If true, uses checkpoint weights
             preprocess_images (bool): Whether to preprocess images inside the forward pass. Default = True
         """
         super().__init__()
-        self.model = mum_vitl16(pretrained, **kwargs)
+        self.model = mum_vitl16(pretrained=True, **kwargs)
         self.patch_size = self.model.patch_size
         if preprocess_images:
             self.proecessor = BaseProcessor(patch_size=self.patch_size, normalize=True)

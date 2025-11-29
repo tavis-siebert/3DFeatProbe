@@ -1,21 +1,28 @@
 import os
 import json
-from pathlib import Path
-import hydra
-import numpy as np
-import torch.backends.cudnn as cudnn
-from omegaconf import DictConfig, OmegaConf
+import sys
 import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, Optional, List
+import torch.backends.cudnn as cudnn
+import numpy as np
+from pathlib import Path
+from typing import Dict, Optional, List, Tuple
 
 from src.training.utils import convert_mapa_batch_to_vggt, move_data_to_device
 from src.datasets import build_wai_dataloader
 from src.models import get_model_from_model_id
+from src.models.backbones import FeatureBackbone
 
-logger = logging.getLogger(__name__)
+# Logging
+log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+handler.setFormatter(formatter)
+log.addHandler(handler)
 
 ###########
 ## DEBUG ##
@@ -121,22 +128,22 @@ def evaluate_pairs_and_precision(features, voxel_ids, sample_pairs=50000, ks=(1,
 ###########
 
 def downsample_world_coords(
-        world_coords: torch.Tensor, 
-        patch_size: int,
-        mask: Optional[torch.Tensor] = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    world_coords: torch.Tensor, 
+    patch_size: int,
+    valid_mask: Optional[torch.Tensor] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Downsample world_coords to match model's patch token resolution.
     
     Args:
         world_coords (torch.Tensor): (N, H, W, 3) 
         patch_size (int): model patch size, e.g., 16
-        mask (torch.Tensor): if not None, which points to mark for exclusion in downstream correspondence calc.
-                            Masked patches will be assigned a NaN value and ignored in subsequent calculations.
-                            Size (N, H, W)
+        valid_mask (torch.Tensor): if not None, which points to mark for exclusion in downstream
+                            correspondence calc (1 = valid, 0 = exclude). Size (N, H, W)
 
     Returns:
-        tuple[torch.Tensor]: The (N, P_H, P_W, 3) pooled coordinates and the mask of which coordinates are valid (N, P_H, P_W)
+        Tuple[torch.Tensor]: The (N, H_p, W_p, 3) pooled coordinates 
+                            and the mask of which coordinates are valid (N, H_p, W_p)
     """
     # permute for pooling (N, 3, H, W)
     coords = world_coords.permute(0, 3, 1, 2)
@@ -150,8 +157,8 @@ def downsample_world_coords(
     )
 
     pooled_mask = None
-    if mask is not None:
-        m = mask.unsqueeze(1).float()
+    if valid_mask is not None:
+        m = valid_mask.unsqueeze(1).float()
         pooled_mask = F.avg_pool2d(m, kernel_size=patch_size, stride=patch_size, ceil_mode=True)
         pooled_mask = (pooled_mask >= 0.5).squeeze(1)
 
@@ -173,45 +180,61 @@ def ravel_hash_vec(arr: torch.Tensor) -> torch.Tensor:
     return keys
 
 def voxelize_world_coords(
-    world_coords_pooled: torch.Tensor, 
+    world_coords_pooled: torch.Tensor,
+    valid_mask: Optional[torch.Tensor] = None,
     scene_point_cloud: Optional[torch.Tensor] = None,
-    voxel_size: float=0.1
-) -> tuple[torch.Tensor, torch.Tensor]:
+    voxel_size: float = 0.1,
+    padding_fraction: float=0.1,
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Discretize world points to voxel grid coordinates
     Code adapted from: https://github.com/Visual-AI/3DRS/blob/11ad004a9d81d7bdb0034cf19bdca457146e8892/llava/model/language_model/.ipynb_checkpoints/llava_qwen-checkpoint.py#L283
 
     Args:
         world_coords_pooled (torch.Tensor): Per patch pooled points in world coordinates (N, H_p, W_p, 3)
+        valid_mask (torch.Tensor, Optional): Per patch mask of whether the corresponding pooled point is valid (mask == 1) (N, H_p, W_p)
         scene_point_cloud (torch.Tensor, Optional): The scene point cloud to compute voxel boundaries (-1, 3)
         voxel_size (float): Size of each voxel
+        padding_fraction (float): Fraction of each dimension to add on as padding to voxel volume dimensions
 
     Returns:
-        tuple[torch.Tensor, torch.Tensor] of discretized world coordinates and their voxel ids
+        Tuple[torch.Tensor, torch.Tensor] of discretized world coordinates and their voxel ids
     """
-    # TODO: dynamic voxel size based on box size
-    # TODO: this heavily biases to foreground (e.g. background patch points get clamped to object scene)
+    N, H_p, W_p, = world_coords_pooled.shape[:-1]
+    coords_flat = world_coords_pooled.reshape(-1, 3)
+        
     if scene_point_cloud is not None:
-        min_xyz, _ = scene_point_cloud.min(dim=0)
-        max_xyz, _ = scene_point_cloud.max(dim=0)
+        min_xyz = scene_point_cloud.min(dim=0)[0]
+        max_xyz = scene_point_cloud.max(dim=0)[0]
+    elif valid_mask is not None:
+        valid_coords = coords_flat[valid_mask.flatten()]
+        min_xyz = valid_coords.min(dim=0)[0]
+        max_xyz = valid_coords.max(dim=0)[0]
     else:
-        # min_xyz_range = [-15, -15, -5]
-        # max_xyz_range = [15, 15, 5]
-        logger.warning("Using dynamic coordinates can lead to noisier correspondence scores")
-        min_xyz = world_coords_pooled.amin(dim=(0,1,2))
-        max_xyz = world_coords_pooled.amax(dim=(0,1,2))
+        min_xyz = coords_flat.min(dim=0)[0]
+        max_xyz = coords_flat.max(dim=0)[0]
 
-    min_xyz = torch.tensor(min_xyz).to(world_coords_pooled.device) * 2
-    max_xyz = torch.tensor(max_xyz).to(world_coords_pooled.device) * 2
+    # Pad symmetrically by fraction of range
+    box_dims = (max_xyz - min_xyz).abs()
+    pad = box_dims * float(padding_fraction)
+    min_xyz = (min_xyz - pad)
+    max_xyz = (max_xyz + pad)
 
-    clamped = torch.clamp(world_coords_pooled, min=min_xyz, max=max_xyz)
+    # Clamp, compute discrete coords
+    coords_clamped = torch.clamp(coords_flat, min=min_xyz, max=max_xyz)
+    world_coords_discrete = ((coords_clamped - min_xyz) / voxel_size).round()
+    world_coords_discrete = world_coords_discrete.to(torch.long)
 
-    # convert to voxel indices
-    world_coords_discrete = ((clamped - min_xyz) / voxel_size).round()
+    # Hash to voxel IDs
     keys = ravel_hash_vec(world_coords_discrete.reshape(1, -1, 3))
     key_set = torch.unique(keys[0].long(), return_inverse=True)
 
-    return world_coords_discrete, key_set[1]
+    # Label invalid voxels with -1
+    voxel_ids = key_set[1]
+    if valid_mask is not None:
+        voxel_ids[~valid_mask.flatten()] = -1
+
+    return world_coords_discrete.reshape(N, H_p, W_p, 3), voxel_ids
 
 def correspondence_score(features: torch.Tensor, voxel_ids: torch.Tensor, chunk_size: int = 1024) -> tuple[float, float]:
     """
@@ -219,16 +242,19 @@ def correspondence_score(features: torch.Tensor, voxel_ids: torch.Tensor, chunk_
     Corresponding patches are defined as those that map to the same voxel in different views.
 
     Args:
-        features (torch.Tensor): (N, H_p, W_p, D)
+        features (torch.Tensor): (N, P, D) or (N, H_p, W_p, D) where P = H_p * W_p
         voxel_ids (torch.Tensor): (L,) - long or int tensor mapping each feature to a voxel id
         chunk_size (int): number of rows to process at once (tune to memory limits)
     Returns:
         (corr_mean, non_corr_mean)
     """
     # Flatten features to (L, D)
-    N, H_p, W_p, D = features.shape
-    features_per_frame = H_p * W_p
-    L = N * features_per_frame
+    if len(features.shape) == 4:
+        N, H_p, W_p, D = features.shape
+        P = H_p * W_p
+    else:
+        N, P, D = features.shape
+    L = N * P
 
     features = F.normalize(features.reshape(L, D), p=2, dim=-1).half()
 
@@ -237,7 +263,7 @@ def correspondence_score(features: torch.Tensor, voxel_ids: torch.Tensor, chunk_
     valid_mask = (voxel_ids != -1)
     
     # View ids for checking cross-frame pairs (i.e. assigns each patch to the view it came from)
-    view_ids = torch.arange(L, device=device) // features_per_frame
+    view_ids = torch.arange(L, device=device) // P
 
     corr_sum = 0.0
     corr_count = 0
@@ -288,7 +314,7 @@ def correspondence_score(features: torch.Tensor, voxel_ids: torch.Tensor, chunk_
 @torch.no_grad()
 def compute_correspondence_score(
     data_loader: torch.utils.data.DataLoader,
-    model: nn.Module,   #TODO a FeatureExtractor class
+    model: FeatureBackbone,
     device: str,
     use_amp: bool=False,
     amp_dtype: torch.dtype=None,
@@ -330,23 +356,27 @@ def compute_correspondence_score(
         }
 
     for batch in data_loader:
-        # Gather features
+        # Convert batch to B, S, C, H, W and move to device
         model_ready_batch = convert_mapa_batch_to_vggt(batch, world2cam=False)  # want cam2world for coorespondence
         model_ready_batch = move_data_to_device(model_ready_batch, device)
+
+        # Get features
         with torch.autocast(device, enabled=use_amp, dtype=amp_dtype):
-            feats_out = model(model_ready_batch["images"])
+            B, S, C, H, W = model_ready_batch["images"].shape
+            feats_out = model(model_ready_batch["images"].reshape(B*S, C, H, W))
         
+        # TODO: modify feature extractor class to ensure list schema
         # Aggregate (potentially) multiple layers
-        if isinstance(feats_out, torch.Tensor):
-            feats_out = {"final": feats_out}  # assumes final layer
-        elif isinstance(feats_out, (list, tuple)):
-            feats_out = {f"layer_{i}": f for i, f in enumerate(feats_out)} 
-        elif not isinstance(feats_out, dict):
+        if isinstance(feats_out, (list, tuple)):
+            feats_out = {f"layer_{i}": f for i, f in enumerate(feats_out)}  # assume tensor per layer
+        elif isinstance(feats_out, dict):
+            D = feats_out["x_norm_patchtokens"].shape[-1]
+            feats_out = {"final": feats_out["x_norm_patchtokens"].reshape(B, S, -1, D)}
+        else:
             raise TypeError(f"Unexpected feature output type: {type(feats_out)}")
         
         # Loop over each batch
-        batch_size = batch["images"].shape[0]
-        for batch_idx in range(batch_size):
+        for batch_idx in range(B):
             scene = batch[0]["label"][batch_idx]
             
             # Pool world coordinates to assign one point per image patch
@@ -355,18 +385,15 @@ def compute_correspondence_score(
                 world_coords=world_pts, patch_size=model.patch_size, mask=model_ready_batch["point_masks"][batch_idx]
             )
         
-            # Compute hypothetical voxels for each world point
-            _, voxel_ids = voxelize_world_coords(patch_coords, scene_point_cloud=world_pts, voxel_size=voxel_size)
-            if valid_mask is not None:
-                voxel_ids[~valid_mask.flatten()] = -1   # ignore invalid points
+            # Compute hypothetical voxels for each valid world point
+            _, voxel_ids = voxelize_world_coords(patch_coords, valid_mask, voxel_size=voxel_size)
 
             # Compute scores per feature map
             per_scene_scores[scene] = {metric: {name: [] for name in feats_out.keys()} for metric in per_scene_scores[scene].keys()}
 
             for name, feats in feats_out.items():
-                if len(feats.shape) == 5:
-                    feats = feats[batch_idx]  # (num_views, H_p, W_p, D)
-
+                feats = feats[batch_idx]  # (num_views, P, D)
+                
                 corr_score, noncorr_score, corr_count, noncorr_count = correspondence_score(feats, voxel_ids)
                 per_scene_scores[scene]["corr_score"][name].append(corr_score)
                 per_scene_scores[scene]["noncorr_score"][name].append(noncorr_score)
@@ -387,7 +414,7 @@ def compute_correspondence_score(
     return per_scene_scores
 
 def benchmark(args):
-    logging.info("Output Directory: " + args.output_dir)
+    log.info("Output Directory: " + args.output_dir)
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
@@ -408,7 +435,7 @@ def benchmark(args):
             if torch.cuda.is_bf16_supported():
                 amp_dtype = torch.bfloat16
             else:
-                logging.warning(
+                log.warning(
                     "bf16 is not supported on this device. Using fp16 instead."
                 )
                 amp_dtype = torch.float16
@@ -418,7 +445,7 @@ def benchmark(args):
         amp_dtype = torch.float32
 
     # Build the test dataset(s)
-    print("Building test dataset {:s}".format(args.dataset.test_dataset))
+    log.info("Building test dataset {:s}".format(args.dataset.test_dataset))
     data_loaders = {
         dataset.split("(")[0]: build_wai_dataloader(
             dataset=dataset, num_workers=args.dataset.num_workers, test=True, 
@@ -432,20 +459,47 @@ def benchmark(args):
     model = get_model_from_model_id(args.model.model_id, args.model.model_config)
     model.to(device)
     model.eval()
-    #TODO: handle checkpoint loading
+    # checkpoint loading
+    checkpoint_path = args.checkpoint_path
+    if checkpoint_path:
+        log.info(f"Loading from checkpoint: {checkpoint_path}")
+        with open(checkpoint_path, "rb") as f:
+            checkpoint = torch.load(f, map_location="cpu")
+        model_state_dict = checkpoint["model"] if "model" in checkpoint else checkpoint
+        model_state_dict = {
+            "model."+k: v for k, v in model_state_dict.items()
+        }
+        missing, unexpected = model.load_state_dict(
+            model_state_dict, strict=False
+        )
+        if unexpected:
+            logging.warning(f"Got unexpected keys: {unexpected}")
+        if missing and not "processor.mean" in missing:
+            raise ValueError(f"Missing keys: {missing}")
+
+        del checkpoint
+    # for output naming
+    model_name = checkpoint_path.split('/')[-1].split('.')[0] if checkpoint_path else args.model.model_id.split('/')[1]
 
     # Run eval across datasets
     per_dataset_results = {}
     for benchmark_dataset_name, data_loader in data_loaders.items():
-        logging.info("Benchmarking dataset: ", benchmark_dataset_name)
+        benchmark_dataset_name = benchmark_dataset_name.replace(' ','')
+        log.info(f"Benchmarking dataset: {benchmark_dataset_name}")
         data_loader.dataset.set_epoch(0)
 
+        # Compute per-scene stats
         per_scene_results = compute_correspondence_score(
-            dataset=data_loader, model=model, device=device, 
+            data_loader=data_loader, model=model, device=device, 
             use_amp=args.amp.enabled, amp_dtype=amp_dtype, voxel_size=args.voxel_size
         )
 
-        # Aggregate results across all scenes
+        # Save per-scene results
+        out_path = f"mvcorr_{model_name}_{benchmark_dataset_name}_vox-{args.voxel_size}.json"
+        with open(os.path.join(args.output_dir, out_path), "w") as f:
+            json.dump(per_scene_results, f, indent=4)
+
+        # Aggregate results across all scenes in dataset
         cross_scene_results = {
             "corr_score": {},
             "noncorr_score": {},
@@ -459,21 +513,12 @@ def benchmark(args):
         for metric in cross_scene_results.keys():
             for layer_name in cross_scene_results[metric].keys():
                 cross_scene_results[metric][layer_name] = np.mean(cross_scene_results[metric][layer_name])
-
-        # Save
-        with open(
-            os.path.join(
-                args.output_dir, f"{benchmark_dataset_name}_avg_corr.json"
-            ),
-            "w",
-        ) as f:
-            json.dump(cross_scene_results, f, indent=4)
         
         per_dataset_results[benchmark_dataset_name] = cross_scene_results
 
-        # Log
-        logging.info(f"Results for dataset {benchmark_dataset_name}:")
-        logging.info(json.dumps(cross_scene_results, indent=4))
+        # Log average across dataset
+        log.info(f"Avg Results for dataset {benchmark_dataset_name}:")
+        log.info(json.dumps(cross_scene_results, indent=4))
 
     # Aggregate across datasets
     overall_results = {
@@ -490,15 +535,13 @@ def benchmark(args):
         for layer_name in overall_results[metric].keys():
             overall_results[metric][layer_name] = np.mean(overall_results[metric][layer_name])
 
-    # Save
-    with open(
-        os.path.join(
-            args.output_dir, f"overall_avg_corr.json"
-        ),
-        "w",
-    ) as f:
-        json.dump(overall_results, f, indent=4)
+    per_dataset_results["overall"] = overall_results
 
-    # Log
-    logging.info(f"Overall Results across datasets:")
-    logging.info(json.dumps(overall_results, indent=4))
+    # Save per-dataset results + overall avg
+    out_path = f"mvcorr_overall_{model_name}_vox-{args.voxel_size}.json"
+    with open(os.path.join(args.output_dir, out_path), "w") as f:
+        json.dump(per_dataset_results, f, indent=4)
+
+    # Log the average across all datasets
+    log.info(f"Overall Results across datasets:")
+    log.info(json.dumps(overall_results, indent=4))

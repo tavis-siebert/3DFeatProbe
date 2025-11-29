@@ -1,0 +1,22 @@
+defaults:
+  - default
+
+# Number of views in a set
+# Default to 4, although can sweep over more
+num_views: 4
+
+resolution:
+  val:
+    eth3d: (518, 518)
+    scannetppv2: (518, 518)
+    blendedmvs: (518, 518)
+
+# Test Set
+# Sample 10 multiview sets for each scene 
+# ETH3D: 10 scenes
+# ScanNet++V2: 30 scenes
+# BlendedMVS: 20 scenes
+test_dataset:
+  "+ 100 @ ${dataset.eth3d.test.dataset_str}
+   + 300 @ ${dataset.scannetppv2.test.dataset_str}
+   + 200 @ ${dataset.blendedmvs.val.dataset_str}"
