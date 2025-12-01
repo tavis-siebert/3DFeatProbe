@@ -32,6 +32,10 @@ optim:
     - module_name: ["camera"]
       max_norm: 1.0   
       norm_type: 2
+    # uncomment if using point head
+    - module_name: ["point"]
+      max_norm: 1.0
+      norm_type: 2
 logging:
   metrics_to_log:
     train:
@@ -43,6 +47,10 @@ logging:
       - loss_conf_depth
       - loss_reg_depth
       - loss_grad_depth
+      # uncomment if using point head
+      - loss_conf_point
+      - loss_reg_point
+      - loss_grad_point
     val:
       - loss_objective
       - loss_camera
@@ -52,6 +60,10 @@ logging:
       - loss_conf_depth
       - loss_reg_depth
       - loss_grad_depth
+      # uncomment if using point head
+      - loss_conf_point
+      - loss_reg_point
+      - loss_grad_point
 loss:
   loss_fn: "MultitaskLoss"
   loss_config:
@@ -62,7 +74,11 @@ loss:
       weight: 1.0
       gradient_loss_fn: "grad" 
       valid_range: 0.98
-    point: null
+    # uncomment of using point head
+    point:
+      weight: 1.0
+      gradient_loss_fn: "normal"
+      valid_range: 0.98
 distributed:
   ddp_args:
     find_unused_parameters: False

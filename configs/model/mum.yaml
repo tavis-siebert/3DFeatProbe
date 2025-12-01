@@ -1,7 +1,7 @@
 defaults:
   - default
 
-model_id: backbone/mumvisiontransformer
+model_id: feature_extractor/mumvisiontransformer
 data_norm_type: "identity"
 model_config:
   preprocess_images: true

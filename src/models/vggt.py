@@ -19,13 +19,12 @@ from mapanything.utils.geometry import (
 from vggt.utils.rotation import mat_to_quat
 from vggt.utils.pose_enc import pose_encoding_to_extri_intri
 
-from vggt.models.aggregator import Aggregator, slice_expand_and_flatten
+from vggt.models.aggregator import Aggregator
 from vggt.heads.camera_head import CameraHead
 from vggt.heads.dpt_head import DPTHead
 from vggt.heads.track_head import TrackHead
 
 from src.utils.camera import *
-from src.utils.image_utils import center_pad
 from src.models.utils import interpolate_positional_embeddings
 
 class VGGT(nn.Module, PyTorchModelHubMixin):
@@ -88,6 +87,7 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
             self.camera_head = None
 
         if enable_depth:
+            # 1 depth + 1 confidence
             depth_cfg = dict(dim_in=2 * embed_dim, output_dim=2, activation="exp", conf_activation="expp1")
             if depth_head_config:
                 depth_cfg.update(depth_head_config)
@@ -96,6 +96,7 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
             self.depth_head = None
 
         if enable_point:
+            # 3 points + 1 confidence
             point_cfg = dict(dim_in=2 * embed_dim, output_dim=4, activation="inv_log", conf_activation="expp1")
             if point_head_config:
                 point_cfg.update(point_head_config)
@@ -325,134 +326,3 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
             )
             
         return res
-
-
-### VGGTFeatExtract
-class VGGTFeatureExtractor(VGGT):
-    """
-    Convenience class to extract all intermediate layers of VGGT
-    #TODO: only extracts patch_embed and aggregator layers currently
-    """
-    def __init__(
-        self,
-        load_pretrained=True,
-        layer_type: str="all",
-        # vggt args
-        img_size=518,
-        patch_size=14,
-        embed_dim=1024,
-        enable_camera=True,
-        enable_point=True,
-        enable_depth=True,
-        enable_track=True,
-        aggregator_config=None,
-        camera_head_config=None,
-        depth_head_config=None,
-        point_head_config=None,
-        track_head_config=None,
-        **kwargs
-    ):
-        """
-        Args (see VGGT class for full list):
-            load_pretrained (bool): Whether to use the facebook/VGGT-1B checkpoint. Default is True
-            layer_type (str): Whether to return only frame, only global, or concatenated (all) embeddings
-                              Options [`"frame"`, `"global"`, `"all"`]. Defaults to `"all"`
-        """
-        super().__init__(img_size, patch_size, embed_dim, enable_camera, enable_point, enable_depth, enable_track, 
-                         aggregator_config, camera_head_config, depth_head_config, point_head_config, track_head_config, **kwargs)
-
-        possible_layer_types = ("frame", "global", "all")
-        assert layer_type in possible_layer_types, "Layer type must be one of {}".format(possible_layer_types)
-
-    def forward(self, images: torch.Tensor) -> Dict:
-        """
-        Extract patch features from patch embedding model + all attention blocks
-        
-        Args:
-            images (torch.Tensor): Input images with shape [S, 3, H, W] or [B, S, 3, H, W]
-            
-        Returns:
-            Dict mapping the layer name to the patch embeddings of shape [B, S, H_p, W_p, D] where D is flexible
-                (depends on layer)
-        """
-        output_dict = {}
-
-        # Ensure batch dimension
-        if len(images.shape) == 4:
-            images = images.unsqueeze(0)
-        B, S, C_in, H, W = images.shape
-
-        # Extract patch embeddings
-        images = images.view(B*S, C_in, H, W)
-        if H % self.patch_size != 0 or W % self.patch_size != 0:
-            images = center_pad(images, self.patch_size)
-            _, _, H, W = images.shape # update H, W for dimension expansion later
-        
-        patch_tokens = self.aggregator.patch_embed(images)
-        
-        if isinstance(patch_tokens, dict):
-            patch_tokens = patch_tokens["x_norm_patchtokens"]
-            
-        _, P, C = patch_tokens.shape
-        H_p = H // self.patch_size
-        W_p = W // self.patch_size
-        output_dict["patch_tokens"] = patch_tokens.view(B, S, H_p, W_p, C)
-        
-        # Expand camera and register tokens
-        camera_token = slice_expand_and_flatten(self.aggregator.camera_token, B, S)
-        register_token = slice_expand_and_flatten(self.aggregator.register_token, B, S)
-        
-        # Concatenate special tokens with patch tokens
-        tokens = torch.cat([camera_token, register_token, patch_tokens], dim=1)
-
-        pos = None
-        if self.aggregator.rope is not None:
-            pos = self.aggregator.position_getter(B * S, H_p, W_p, device=images.device)
-            
-        if self.aggregator.patch_start_idx > 0:
-            pos = pos + 1
-            pos_special = torch.zeros(B * S, self.aggregator.patch_start_idx, 2).to(images.device).to(pos.dtype)
-            pos = torch.cat([pos_special, pos], dim=1)
-            
-        # Update P after adding special tokens
-        _, P, C = tokens.shape
-        
-        # Process through attention blocks and collect features
-        frame_idx = 0
-        global_idx = 0
-        
-        for layer_num in range(self.aggregator.aa_block_num):
-            for attn_type in self.aggregator.aa_order:
-                if attn_type == "frame":
-                    tokens, frame_idx, frame_intermediates = self.aggregator._process_frame_attention(
-                        tokens, B, S, P, C, frame_idx, pos=pos
-                    )
-                elif attn_type == "global":
-                    tokens, global_idx, global_intermediates = self.aggregator._process_global_attention(
-                        tokens, B, S, P, C, global_idx, pos=pos
-                    )
-                else:
-                    raise ValueError(f"Unknown attention type: {attn_type}")
-
-            for i in range(len(frame_intermediates)):
-                # Concatenate frame and global intermediates
-                concat_inter = torch.cat([frame_intermediates[i], global_intermediates[i]], dim=-1)
-                
-                # Extract only patch tokens (exclude camera and register tokens)
-                patch_features = concat_inter[:, :, self.aggregator.patch_start_idx:, :]  # [B, S, P_patch, 2*C]
-                patch_features = patch_features.view(B, S, H_p, W_p, -1)
-
-                # handle if user specifies specific layer type
-                C_out = patch_features.shape[-1]
-                if self.layer_type == "frame":
-                    patch_features = patch_features[..., :C_out // 2]
-                elif self.layer_type == "global":
-                    patch_features = patch_features[..., -(C_out // 2):]
-                
-                output_dict[f"layer_{layer_num}-{i}"] = patch_features
-
-        del concat_inter
-        del frame_intermediates
-        del global_intermediates
-
-        return output_dict

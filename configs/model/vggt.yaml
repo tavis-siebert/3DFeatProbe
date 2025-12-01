@@ -21,12 +21,12 @@ model_config:
   embed_dim: 1024
   # whether to train with a camera head
   enable_camera: true
-  # whether to train with point head
-  enable_point: true
   # whether to train with a depth head
   enable_depth: true
+  # whether to train with point head
+  enable_point: false
   # whether to train with a track head
-  enable_track: true
+  enable_track: false
   # aggregator config (e.g. change num_layers, patch embed type)
   # null => use vggt default
   aggregator_config: null

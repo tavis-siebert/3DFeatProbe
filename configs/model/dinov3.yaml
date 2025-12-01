@@ -1,7 +1,7 @@
 defaults:
   - default
 
-model_id: backbone/dinov3
+model_id: feature_extractor/dinov3
 # alternatively, specify the Uniception preprocessor and set preprocess_image to false
 data_norm_type: "identity"
 model_config:

@@ -92,7 +92,7 @@ class VGGTTrainer(Trainer):
         if "dinov2" in ckpt_path.lower():
             # NOTE: assumes a variant of timm DINOv2 
             if "pretrained" in ckpt_path.lower():
-                from src.models.backbones import DINOv2
+                from src.models.feature_extractors import DINOv2
                 patch_embed = DINOv2(backbone="base", with_registers=True, use_timm=True, preprocess_images=False)
             else:
                 patch_embed = torch.load(ckpt_path, map_location='cpu')

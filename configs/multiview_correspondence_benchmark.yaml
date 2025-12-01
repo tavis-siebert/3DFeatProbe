@@ -1,5 +1,5 @@
 defaults:
-  - machine: local
+  - machine: euler
   - model: mum
   - dataset: benchmark_multiview_correspondence
   - _self_

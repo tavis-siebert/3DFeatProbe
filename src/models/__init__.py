@@ -1,5 +1,5 @@
 from .vggt import VGGT
-from .backbones import get_backbonel_from_id
+from .feature_extractors import get_extractor_from_id
 
 import torch.nn as nn
 from typing import Dict
@@ -18,8 +18,8 @@ def get_model_from_model_id(model_id: str, model_cfg: Dict) -> nn.Module:
     split = model_id.split('/')
     model_type = split[0]
     match model_type.lower():
-        case "backbone":
-            return get_backbonel_from_id('/'.join(split[1:]), model_cfg)
+        case "feature_extractor":
+            return get_extractor_from_id('/'.join(split[1:]), model_cfg)
         case "vggt":
             return VGGT(**model_cfg)
         case _:

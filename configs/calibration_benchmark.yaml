@@ -1,5 +1,5 @@
 defaults:
-  - machine: local
+  - machine: euler
   - model: vggt
   - dataset: benchmark_calibration
   - _self_

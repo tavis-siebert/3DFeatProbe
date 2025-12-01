@@ -3,13 +3,13 @@ import torch.nn as nn
 from transformers import CLIPVisionModel
 from typing import Dict
 
-from .base import FeatureBackbone
+from .base import FeatureExtractor
 from src.models.processors import BaseProcessor
 
 CLIP_MEAN = [0.48145466, 0.4578275, 0.40821073]
 CLIP_STD = [0.26862954, 0.26130258, 0.27577711]
 
-class CLIP(FeatureBackbone):
+class CLIP(FeatureExtractor):
     """
     CLIP (image encoder) model class
     """
@@ -44,6 +44,12 @@ class CLIP(FeatureBackbone):
                 "x_norm_clstoken": the CLS token for classification or semantic tasks
                 "x_norm_patchtokens": the patch embeddings
         """
+        # technically one should refrain from passing batches of shape B, S, C, H, W, but some
+        # pipelines test models which take in both shape types 
+        if len(images.shape) == 5:
+            b, s, c, h, w = images.shape
+            images = images.reshape(b * s, c, h, w)
+
         if self.preprocess_images:
             images = self.processor(images)
         

@@ -13,7 +13,7 @@ from typing import Dict, Optional, List, Tuple
 from src.training.utils import convert_mapa_batch_to_vggt, move_data_to_device
 from src.datasets import build_wai_dataloader
 from src.models import get_model_from_model_id
-from src.models.backbones import FeatureBackbone
+from src.models.feature_extractors import FeatureExtractor
 
 # Logging
 log = logging.getLogger(__name__)
@@ -314,7 +314,7 @@ def correspondence_score(features: torch.Tensor, voxel_ids: torch.Tensor, chunk_
 @torch.no_grad()
 def compute_correspondence_score(
     data_loader: torch.utils.data.DataLoader,
-    model: FeatureBackbone,
+    model: FeatureExtractor,
     device: str,
     use_amp: bool=False,
     amp_dtype: torch.dtype=None,
@@ -362,18 +362,20 @@ def compute_correspondence_score(
 
         # Get features
         with torch.autocast(device, enabled=use_amp, dtype=amp_dtype):
-            B, S, C, H, W = model_ready_batch["images"].shape
-            feats_out = model(model_ready_batch["images"].reshape(B*S, C, H, W))
+            B, S = model_ready_batch["images"].shape[:2]
+            feats_out = model.forward_features(model_ready_batch["images"])
         
-        # TODO: modify feature extractor class to ensure list schema
-        # Aggregate (potentially) multiple layers
-        if isinstance(feats_out, (list, tuple)):
-            feats_out = {f"layer_{i}": f for i, f in enumerate(feats_out)}  # assume tensor per layer
-        elif isinstance(feats_out, dict):
+        # Aggregate
+        output_schema = model.validate_output_schema(feats_out)
+        if output_schema == "single":
             D = feats_out["x_norm_patchtokens"].shape[-1]
-            feats_out = {"final": feats_out["x_norm_patchtokens"].reshape(B, S, -1, D)}
-        else:
-            raise TypeError(f"Unexpected feature output type: {type(feats_out)}")
+            layerwise_feats = {"final": feats_out["x_norm_patchtokens"].reshape(B, S, -1, D)}
+        elif output_schema == "multi":
+            layerwise_feats = {}
+            for layer_name, layer_out in feats_out.items():
+                patchtokens = layer_out["x_norm_patchtokens"]
+                D = patchtokens.shape[-1]
+                layerwise_feats[layer_name] = patchtokens.reshape(B, S, -1, D)
         
         # Loop over each batch
         for batch_idx in range(B):
@@ -389,12 +391,10 @@ def compute_correspondence_score(
             _, voxel_ids = voxelize_world_coords(patch_coords, valid_mask, voxel_size=voxel_size)
 
             # Compute scores per feature map
-            per_scene_scores[scene] = {metric: {name: [] for name in feats_out.keys()} for metric in per_scene_scores[scene].keys()}
+            per_scene_scores[scene] = {metric: {name: [] for name in layerwise_feats.keys()} for metric in per_scene_scores[scene].keys()}
 
-            for name, feats in feats_out.items():
-                feats = feats[batch_idx]  # (num_views, P, D)
-                
-                corr_score, noncorr_score, corr_count, noncorr_count = correspondence_score(feats, voxel_ids)
+            for name, feats in layerwise_feats.items():
+                corr_score, noncorr_score, corr_count, noncorr_count = correspondence_score(feats[batch_idx], voxel_ids)
                 per_scene_scores[scene]["corr_score"][name].append(corr_score)
                 per_scene_scores[scene]["noncorr_score"][name].append(noncorr_score)
                 per_scene_scores[scene]["corr_count"][name].append(corr_count)

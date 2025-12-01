@@ -3,10 +3,10 @@ import torch.nn as nn
 from transformers import ViTMAEModel
 from typing import Dict
 
-from .base import FeatureBackbone
+from .base import FeatureExtractor
 from src.models.processors import BaseProcessor
 
-class MAE(FeatureBackbone):
+class MAE(FeatureExtractor):
     """
     Wrapper for ViT-MAE encoder to produce dense patch features
     """
@@ -42,6 +42,12 @@ class MAE(FeatureBackbone):
                 "x_norm_clstoken": the CLS token for classification or semantic tasks
                 "x_norm_patchtokens": the patch embeddings
         """
+        # technically one should refrain from passing batches of shape B, S, C, H, W, but some
+        # pipelines test models which take in both shape types 
+        if len(images.shape) == 5:
+            b, s, c, h, w = images.shape
+            images = images.reshape(b * s, c, h, w)
+            
         if self.preprocess_images:
             images = self.processor(images)
 
