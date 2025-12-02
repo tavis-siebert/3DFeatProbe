@@ -29,16 +29,22 @@ training:
 
 # -- Model
 model:
-  pretrained_patch_embed_path: dinov2_pretrained # ywyue/FiT3D, TODO: own ft model
   model_config:
     embed_dim: 768
     enable_point: true
+    patch_emed_config:
+      model_id: feature_extractor/dinov2
+      model_config:
+        checkpoint_path: null
+        backbone: "base"
+        use_timm: true
+        with_registers: true
+        preprocess_images: false
     aggregator_config:
       depth: 8
       num_heads: 8
       mlp_ratio: 2
       num_register_tokens: 4
-      patch_embed: "dinov2_vitb14_reg"
     camera_head_config:
       trunk_depth: 4
       num_heads: 8

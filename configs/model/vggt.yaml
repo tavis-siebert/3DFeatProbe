@@ -7,8 +7,6 @@ model_id: "vggt"
 data_norm_type: "identity"
 # load the weights from official checkpoint
 load_pretrained: false
-# load specific patch embed (e.g., your fine-tuned DINOv2)
-pretrained_patch_embed_path: null
 
 # Model config
 model_config:
@@ -27,6 +25,15 @@ model_config:
   enable_point: false
   # whether to train with a track head
   enable_track: false
+  # patch_embed config (comments show example for dinov2-base pretrained with registers)
+  patch_emed_config: null
+  #  model_id: feature_extractor/dinov2
+  #  model_config:
+  #    checkpoint_path: null
+  #    backbone: "base"
+  #    use_timm: true
+  #    with_registers: true
+  #    preprocess_images: false
   # aggregator config (e.g. change num_layers, patch embed type)
   # null => use vggt default
   aggregator_config: null

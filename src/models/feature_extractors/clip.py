@@ -1,10 +1,10 @@
 import torch
-import torch.nn as nn
 from transformers import CLIPVisionModel
 from typing import Dict
 
 from .base import FeatureExtractor
 from src.models.processors import BaseProcessor
+from src.models.utils import load_checkpoint
 
 CLIP_MEAN = [0.48145466, 0.4578275, 0.40821073]
 CLIP_STD = [0.26862954, 0.26130258, 0.27577711]
@@ -13,9 +13,17 @@ class CLIP(FeatureExtractor):
     """
     CLIP (image encoder) model class
     """
-    def __init__(self, backbone: str="vit-base-patch16", preprocess_images: bool=True):
+    def __init__(
+        self,
+        checkpoint_path: str=None,
+        backbone: str="vit-base-patch16", 
+        preprocess_images: bool=True
+    ):
         """
         Args:
+            checkpoint_path (str): the path to a specific checkpoint. By default all models
+                                    are loaded from huggingface or torchhub pretrained weights unless
+                                    a checkpoint is provided
             backbone (str): Backbone architecture. See model README for details
             preprocess_images (bool): Whether to preprocess images inside the forward pass. Default = True
         """
@@ -25,8 +33,13 @@ class CLIP(FeatureExtractor):
         assert backbone in possible_backbones, "Backbone must be one of {}".format(possible_backbones)
         
         self.model = CLIPVisionModel.from_pretrained(f"openai/clip-{backbone}")
+        if checkpoint_path:
+            load_checkpoint(self.model, checkpoint_path)
+
         self.patch_size = self.model.config.patch_size
-        self.feature_dim = self.model.config.hidden_size
+        self.embed_dim = self.model.config.hidden_size
+        self.img_size = self.model.config.image_size
+        
         self.preprocess_images = preprocess_images
         if self.preprocess_images:
             self.processor = BaseProcessor(patch_size=self.patch_size, normalize=True, mean=CLIP_MEAN, std=CLIP_STD)

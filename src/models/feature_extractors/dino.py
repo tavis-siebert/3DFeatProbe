@@ -7,6 +7,7 @@ from transformers import AutoModel
 
 from .base import FeatureExtractor
 from src.models.processors import BaseProcessor
+from src.models.utils import load_checkpoint
 
 class DINOv2(FeatureExtractor):
     """
@@ -14,6 +15,7 @@ class DINOv2(FeatureExtractor):
     """
     def __init__(
         self, 
+        checkpoint_path: str=None,
         backbone: str="base", 
         use_timm: bool=False,
         with_registers=False, 
@@ -21,6 +23,9 @@ class DINOv2(FeatureExtractor):
     ):
         """
         Args:
+            checkpoint_path (str): the path to a specific checkpoint. By default all models
+                                    are loaded from huggingface or torchhub pretrained weights unless
+                                    a checkpoint is provided
             backbone (str): Backbone architecture (e.g. "base"). Check models README
             use_timm (bool): If true, uses timm model. Default = False
             with_registers (bool): Whether to use DINOv2 with register tokens. Default = False
@@ -28,19 +33,18 @@ class DINOv2(FeatureExtractor):
         """
         super().__init__()
 
-        # choose implementation (slight differences with state_dict, but same weights)
         self.use_timm = use_timm
         self.with_registers = with_registers
         if self.use_timm:
-            self._init_with_timm(backbone, self.with_registers)
+            self._init_with_timm(checkpoint_path, backbone, self.with_registers)
         else:
-            self._init_with_hf(backbone, self.with_registers)
+            self._init_with_hf(checkpoint_path, backbone, self.with_registers)
         
         self.preprocess_images = preprocess_images
         if self.preprocess_images:
             self.processor = BaseProcessor(patch_size=self.patch_size, normalize=True)
     
-    def _init_with_timm(self, backbone, with_registers):
+    def _init_with_timm(self, checkpoint_path, backbone, with_registers):
         """Initialize with timm"""
         possible_backbones = (
             "small", 
@@ -53,13 +57,22 @@ class DINOv2(FeatureExtractor):
         full_model_path = f"vit_{backbone}_patch14_reg4_dinov2.lvd142m" if with_registers else f"vit_{backbone}_patch14_dinov2.lvd142m"
 
         self.model = timm.create_model(full_model_path, pretrained=True)
+        if checkpoint_path:
+            load_checkpoint(self.model, checkpoint_path)
         self.model.patch_embed.strict_img_size = False
         self.model.forward_features = lambda x, masks=None: self._timm_forward_features(x, masks=masks)
 
         self.patch_size = self.model.patch_embed.patch_size[0]
-        self.feature_dim = self.model.embed_dim
+        self.embed_dim = self.model.embed_dim
+        img_size = self.model.patch_embed.img_size
+        if isinstance(img_size, tuple):
+            if img_size[0] != img_size[1]:
+                img_size = min(img_size)
+            else:
+                img_size = img_size[0]
+        self.img_size = img_size
     
-    def _init_with_hf(self, backbone, with_registers):
+    def _init_with_hf(self, checkpoint_path, backbone, with_registers):
         "Initialize with official facebook version on huggingface"
         possible_backbones = (
             "small", 
@@ -73,8 +86,12 @@ class DINOv2(FeatureExtractor):
         full_model_path = f"facebook/dinov2-{backbone}"
 
         self.model = AutoModel.from_pretrained(full_model_path)
+        if checkpoint_path:
+            load_checkpoint(self.model, checkpoint_path)
+
         self.patch_size = self.model.config.patch_size
-        self.feature_dim = self.model.config.hidden_size
+        self.embed_dim = self.model.config.hidden_size
+        self.img_size = self.model.config.image_size
 
     def _interpolate_pos_embed(self, H, W, antialias=False, offset=0.1):
         """
@@ -239,9 +256,12 @@ class DINOv3(FeatureExtractor):
     """
     DINOv3 model class.
     """
-    def __init__(self, backbone: str="base", preprocess_images: bool=True):
+    def __init__(self, checkpoint_path: str=None, backbone: str="base", preprocess_images: bool=True):
         """
         Args:
+            checkpoint_path (str): the path to a specific checkpoint. By default all models
+                                    are loaded from huggingface or torchhub pretrained weights unless
+                                    a checkpoint is provided
             backbone (str): Backbone architecture (e.g. "base"). Check models README
             preprocess_images (bool): Whether to preprocess images inside the forward pass. Default = True
         """
@@ -256,19 +276,25 @@ class DINOv3(FeatureExtractor):
             "huge",
             "huge_plus",
             "7b"
-            # TODO: support ConvNext (e.g. handle patch size, feature dim, etc)
-            # "convnext-tiny",
-            # "convnext-small",
-            # "convnext-base",
-            # "convnext-large"
         )
         assert backbone in possible_backbones, "Backbone must be one of {}".format(possible_backbones)
 
         full_model_path = f"vit_{backbone}_patch16_dinov3.lvd1689m"
 
         self.model = timm.create_model(full_model_path, pretrained=True)
+        if checkpoint_path:
+            load_checkpoint(self.model, checkpoint_path)
+
         self.patch_size = self.model.patch_embed.patch_size[0]
-        self.feature_dim = self.model.embed_dim
+        self.embed_dim = self.model.embed_dim
+        img_size = self.model.patch_embed.img_size
+        if isinstance(img_size, tuple):
+            if img_size[0] != img_size[1]:
+                img_size = min(img_size)
+            else:
+                img_size = img_size[0]
+        self.img_size = img_size
+
         self.preprocess_images = preprocess_images
         if self.preprocess_images:
             self.processor = BaseProcessor(patch_size=self.patch_size, normalize=True)
@@ -299,7 +325,7 @@ class DINOv3(FeatureExtractor):
         num_patches_h, num_patches_w = h // self.patch_size, w // self.patch_size
         num_patches = num_patches_h * num_patches_w
 
-        last_hidden_states = self.model.forward_features(images) # (B, 1 + num_register_tokens + num_patches, self.feature_dim)
+        last_hidden_states = self.model.forward_features(images) # (B, 1 + num_register_tokens + num_patches, feature_dim)
 
         patch_embeds = last_hidden_states[:, -num_patches:, :]
         if unflatten_patches:

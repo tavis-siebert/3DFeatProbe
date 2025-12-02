@@ -4,4 +4,5 @@ defaults:
 model_id: feature_extractor/mumvisiontransformer
 data_norm_type: "identity"
 model_config:
+  checkpoint_path: null
   preprocess_images: true

@@ -65,49 +65,12 @@ class VGGTTrainer(Trainer):
             if train_h != model_args.img_size:
                 logging.warning(f"Got train image size {train_h} and config image size {model_args.img_size}. Defaulting to training size")
                 model_args.img_size = train_h
-
             self.model = VGGT(**model_args)
         logging.info(f"Initialized Model: {str(self.model)}")
-
-        # swap out patch embed
-        patch_embed_ckpt_path = self.model_cfg.pretrained_patch_embed_path
-        if patch_embed_ckpt_path:
-            logging.info(f"Switching patch embed to '{patch_embed_ckpt_path}'")
-            self._load_specific_patch_embed(patch_embed_ckpt_path)
 
         # move to device
         self.model.to(self.device)
     
-    def _load_specific_patch_embed(self, ckpt_path: str) -> Dict:
-        """
-        This is a VERY BRITTLE function for our experiments.
-        Hopefully it is clear how the function works and how to structure the config.
-        Specifically, ensure to set `pretrained_patch_embed_path` and either rename the checkpoint or change this function
-        to accomodate your checkpoint
-        
-        Args:
-            ckpt_path (str): the torch hub or local path to the dinov2 weights that will be used to initialize VGGT's patch_embed
-        """
-        ckpt_config = {}
-        if "dinov2" in ckpt_path.lower():
-            # NOTE: assumes a variant of timm DINOv2 
-            if "pretrained" in ckpt_path.lower():
-                from src.models.feature_extractors import DINOv2
-                patch_embed = DINOv2(backbone="base", with_registers=True, use_timm=True, preprocess_images=False)
-            else:
-                patch_embed = torch.load(ckpt_path, map_location='cpu')
-            state_dict = {
-                k.replace("model.", ""): v for k, v in patch_embed.state_dict().items()
-            }
-            ckpt_config["checkpoint_state_dict"] = state_dict
-            ckpt_config["original_image_size"] = 518
-        else:
-            raise ValueError(f"Failed to match '{ckpt_path}' to one of our state dicts")
-        
-        self.model.load_pretrained_patch_embed(ckpt_config)
-
-        del patch_embed
-
     # -- Setup loss / criterion
     def _setup_loss(self):
         self.loss = MultitaskLoss(**self.loss_cfg.loss_config)

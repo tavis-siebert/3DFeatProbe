@@ -9,6 +9,7 @@ from vggt.models.aggregator import slice_expand_and_flatten
 
 from src.models.vggt import VGGT
 from .base import FeatureExtractor
+from src.models.utils import load_checkpoint
 from src.utils.image_utils import center_pad
 
 class VGGTFeatureExtractor(FeatureExtractor):
@@ -18,25 +19,13 @@ class VGGTFeatureExtractor(FeatureExtractor):
     """
     def __init__(
         self,
-        load_pretrained: bool=True,
+        vggt_config: Dict,
+        checkpoint_path: str=None,
         layer_types: List[str]=["all"],
-        # vggt args
-        img_size=518,
-        patch_size=14,
-        embed_dim=1024,
-        enable_camera=True,
-        enable_point=True,
-        enable_depth=True,
-        enable_track=True,
-        aggregator_config=None,
-        camera_head_config=None,
-        depth_head_config=None,
-        point_head_config=None,
-        track_head_config=None,
-        **kwargs
     ):
         """
         Args (see VGGT class for full list):
+            vggt_config (Dict): 
             layer_type (List[strr]): Specify one or more of the following
                 - "patch_embed": the final layer of the patch_embed encoder model
                 - "frame": all local attention layers within the aggregator
@@ -45,11 +34,15 @@ class VGGTFeatureExtractor(FeatureExtractor):
         """
         super().__init__()
 
-        if load_pretrained:
-            self.model = VGGT.from_pretrained("facebook/VGGT-1B")
+        if checkpoint_path:
+            if vggt_config:
+                self.model = VGGT(**vggt_config)
+            else:
+                self.model = VGGT()
+
+            load_checkpoint(self.model, checkpoint_path)
         else:
-            self.model = VGGT(img_size, patch_size, embed_dim, enable_camera, enable_point, enable_depth, enable_track, 
-                         aggregator_config, camera_head_config, depth_head_config, point_head_config, track_head_config, **kwargs)
+            self.model = VGGT.from_pretrained("facebook/VGGT-1B")
 
         possible_layer_types = ("patch_embed", "frame", "global", "all")
         assert all([layer in possible_layer_types for layer in layer_types]), \

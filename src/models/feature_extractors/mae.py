@@ -1,30 +1,39 @@
 import torch
-import torch.nn as nn
 from transformers import ViTMAEModel
 from typing import Dict
 
 from .base import FeatureExtractor
 from src.models.processors import BaseProcessor
+from src.models.utils import load_checkpoint
 
 class MAE(FeatureExtractor):
     """
     Wrapper for ViT-MAE encoder to produce dense patch features
     """
-    def __init__(self, backbone: str="base", preprocess_images: bool=True):
+    def __init__(self, checkpoint_path: str=None, backbone: str="base", preprocess_images: bool=True):
         """
         Args:
+            checkpoint_path (str): the path to a specific checkpoint. By default all models
+                                    are loaded from huggingface or torchhub pretrained weights unless
+                                    a checkpoint is provided
             backbone (str): Backbone architecture (e.g. "base"). Check models README
             preprocess_images (bool): Whether to preprocess images inside the forward pass. Default = True
         """
         super().__init__()
+        
         possible_backbones = ("base", "large", "huge")
         assert backbone in possible_backbones, "Backbone must be one of {}".format(possible_backbones)
 
         model_id = f"facebook/vit-mae-{backbone}"
         self.model = ViTMAEModel.from_pretrained(model_id)
-        self.patch_size = self.model.config.patch_size
-        self.feature_dim = self.model.config.hidden_size
+        if checkpoint_path:
+            load_checkpoint(self.model, checkpoint_path)
         self.model.config.mask_ratio = 0.0  # disable masking
+
+        self.patch_size = self.model.config.patch_size
+        self.embed_dim = self.model.config.hidden_size
+        self.img_size = self.model.config.image_size
+
         self.preprocess_images = preprocess_images
         if self.preprocess_images:
             self.processor = BaseProcessor(patch_size=self.patch_size, normalize=True)

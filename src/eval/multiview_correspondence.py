@@ -1,15 +1,14 @@
 import os
 import json
-import sys
 import logging
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 import numpy as np
 from pathlib import Path
 from typing import Dict, Optional, List, Tuple
 
+from src.utils.logging import direct_logger_to_stdout
 from src.training.utils import convert_mapa_batch_to_vggt, move_data_to_device
 from src.datasets import build_wai_dataloader
 from src.models import get_model_from_model_id
@@ -17,12 +16,7 @@ from src.models.feature_extractors import FeatureExtractor
 
 # Logging
 log = logging.getLogger(__name__)
-log.setLevel(logging.INFO)
-handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.INFO)
-formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-handler.setFormatter(formatter)
-log.addHandler(handler)
+direct_logger_to_stdout(log)
 
 ###########
 ## DEBUG ##
@@ -455,31 +449,14 @@ def benchmark(args):
         if "(" in dataset
     }
 
-    # load model
+    # Load model
+    assert "feature_extractor" in args.model.model_id, "Can only test correspondence on instances of FeatureExtractor"
     model = get_model_from_model_id(args.model.model_id, args.model.model_config)
     model.to(device)
     model.eval()
-    # checkpoint loading
-    checkpoint_path = args.checkpoint_path
-    if checkpoint_path:
-        log.info(f"Loading from checkpoint: {checkpoint_path}")
-        with open(checkpoint_path, "rb") as f:
-            checkpoint = torch.load(f, map_location="cpu")
-        model_state_dict = checkpoint["model"] if "model" in checkpoint else checkpoint
-        model_state_dict = {
-            "model."+k: v for k, v in model_state_dict.items()
-        }
-        missing, unexpected = model.load_state_dict(
-            model_state_dict, strict=False
-        )
-        if unexpected:
-            logging.warning(f"Got unexpected keys: {unexpected}")
-        if missing and not "processor.mean" in missing:
-            raise ValueError(f"Missing keys: {missing}")
-
-        del checkpoint
+        
     # for output naming
-    model_name = checkpoint_path.split('/')[-1].split('.')[0] if checkpoint_path else args.model.model_id.split('/')[1]
+    model_name = model.checkpoint_path.split('/')[-1].split('.')[0] if model.checkpoint_path else args.model.model_id.split('/')[1]
 
     # Run eval across datasets
     per_dataset_results = {}

@@ -1,4 +1,3 @@
-from .base import FeatureExtractor
 from .dino import DINOv2, DINOv3
 from .clip import CLIP
 from .mae import MAE
@@ -8,7 +7,7 @@ from .vggt import VGGTFeatureExtractor
 __all__ = [
     "DINOv2", "DINOv3", "CLIP", "MAE", 
     "MuMVisionTransformer", "VGGTFeatureExtractor"
-    "FeatureExtractor", "get_model_from_id"
+    "get_extractor_from_id"
 ]
 
 def get_extractor_from_id(model_id, model_cfg):

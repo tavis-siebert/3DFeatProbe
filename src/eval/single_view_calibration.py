@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
+
 from mapanything.models import init_model
 from mapanything.utils.metrics import (
     l2_distance_of_unit_ray_directions_to_angular_error,
@@ -23,15 +24,10 @@ from mapanything.utils.metrics import (
 
 from src.datasets import build_wai_dataloader
 from src.models.vggt import VGGT
+from src.utils.logging import direct_logger_to_stdout
 
 log = logging.getLogger(__name__)
-log.setLevel(logging.INFO)
-handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.INFO)
-formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-handler.setFormatter(formatter)
-log.addHandler(handler)
-
+direct_logger_to_stdout(log)
 
 def get_all_info_for_metric_computation(batch, preds):
     """
@@ -124,6 +120,7 @@ def benchmark(args):
     model.to(device)  # Move model to device
     model.eval()
 
+    #TODO
     checkpoint_path = args.checkpoint_path
     if checkpoint_path:
         log.info("Loading from checkpoint: ", checkpoint_path)

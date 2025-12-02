@@ -1,24 +1,35 @@
 import torch
-import torch.nn as nn
 from typing import Dict
 
 from .base import FeatureExtractor
 from src.models.processors import BaseProcessor
 from external.mum.mum import mum_vitl16
+from src.models.utils import load_checkpoint
 
 class MuMVisionTransformer(FeatureExtractor):
     """
     Convenience wrapper to extract features from MuM Encoder.
     See https://github.com/davnords/mum# for their awesome work
     """
-    def __init__(self, preprocess_images: bool=True, **kwargs):
+    def __init__(self, checkpoint_path: str=None, preprocess_images: bool=True, **kwargs):
         """
         Args:
+            checkpoint_path (str): the path to a specific checkpoint. By default all models
+                                    are loaded from huggingface or torchhub pretrained weights unless
+                                    a checkpoint is provided
             preprocess_images (bool): Whether to preprocess images inside the forward pass. Default = True
         """
         super().__init__()
+        
         self.model = mum_vitl16(pretrained=True, **kwargs)
+        if checkpoint_path:
+            load_checkpoint(self.model, checkpoint_path)
+
         self.patch_size = self.model.patch_size
+        self.embed_dim = self.model.embed_dim
+        self.img_size = self.model.patch_embed.img_size
+       
+        self.preprocess_images = preprocess_images
         if preprocess_images:
             self.proecessor = BaseProcessor(patch_size=self.patch_size, normalize=True)
 
@@ -41,7 +52,7 @@ class MuMVisionTransformer(FeatureExtractor):
             b, s, c, h, w = images.shape
             images = images.reshape(b * s, c, h, w)
             
-        if self.proecessor:
+        if self.preprocess_images:
             images = self.proecessor(images)
         
         num_patches_h, num_patches_w = images.shape[-2] // self.patch_size, images.shape[-1] // self.patch_size

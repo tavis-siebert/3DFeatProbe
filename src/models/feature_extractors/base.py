@@ -28,6 +28,15 @@ class FeatureExtractor(nn.Module, ABC):
             }
             ```
     """
+    def validate_required_attrs(self):
+        if not hasattr(self, "model"):
+            raise AttributeError(f"{type(self).__name__} must define self.model.")
+        if not hasattr(self, "patch_size"):
+            raise AttributeError(f"{type(self).__name__} must define self.patch_size.")
+        if not hasattr(self, "embed_dim"):
+            raise AttributeError(f"{type(self).__name__} must define self.embed_dim.")
+        if not hasattr(self, "img_size"):
+            raise AttributeError(f"{type(self).__name__} must define self.img_size.")
 
     @abstractmethod
     def forward_features(

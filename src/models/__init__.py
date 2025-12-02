@@ -1,6 +1,3 @@
-from .vggt import VGGT
-from .feature_extractors import get_extractor_from_id
-
 import torch.nn as nn
 from typing import Dict
 
@@ -19,8 +16,10 @@ def get_model_from_model_id(model_id: str, model_cfg: Dict) -> nn.Module:
     model_type = split[0]
     match model_type.lower():
         case "feature_extractor":
+            from .feature_extractors import get_extractor_from_id
             return get_extractor_from_id('/'.join(split[1:]), model_cfg)
         case "vggt":
+            from .vggt import VGGT
             return VGGT(**model_cfg)
         case _:
             raise ValueError(f"Unknown model type: {model_type} for model id: {model_id}")
