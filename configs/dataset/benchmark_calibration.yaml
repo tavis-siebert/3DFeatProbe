@@ -1,0 +1,19 @@
+defaults:
+  - default
+
+# Single-view calibration
+num_views: 1
+
+# Test with multi-resolution
+resolution:
+  val:
+    eth3d: '[(518, 518), (518, 392), (518, 336), (518, 294), (518, 252), (518, 168), (392, 518), (336, 518), (294, 518), (252, 518)]'
+    scannetppv2: '[(518, 518), (518, 392), (518, 336), (518, 294), (518, 252), (518, 168), (392, 518), (336, 518), (294, 518), (252, 518)]'
+
+# Test Set
+# Sample 20 frames from each scene
+# ETH3D: 13 scenes
+# ScanNet++V2: 30 scenes
+test_dataset:
+  "+ 260 @ ${dataset.eth3d.test.dataset_str}
+  + 600 @ ${dataset.scannetppv2.test.dataset_str}"

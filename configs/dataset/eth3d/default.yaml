@@ -1,5 +1,5 @@
 # general
-ROOT: ${root_data_dir}/eth3d
+ROOT: ${root_data_dir}/eth3d_wai
 dataset_metadata_dir: ${mapanything_metadata_dir}
 
 # test
@@ -16,7 +16,7 @@ test:
       variable_num_views=${dataset.eth3d.test.variable_num_views},
       num_views=${dataset.eth3d.test.num_views},
       covisibility_thres=${dataset.eth3d.test.covisibility_thres})"
-  dataset_resolution: ${training.resolution.val.eth3d}
+  dataset_resolution: ${dataset.resolution.val.eth3d}
   principal_point_centered: ${dataset.principal_point_centered}
   seed: 777
   transform: 'imgnorm'

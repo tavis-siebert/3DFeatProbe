@@ -1,0 +1,24 @@
+defaults:
+  - machine: euler
+  - model: vggt
+  - dataset: benchmark_calibration
+  - _self_
+
+### Benchmarking args
+seed: 0
+# Disable CUDNN Benchmark (Disable for variable resolution & number of view training)
+disable_cudnn_benchmark: true
+# Batch size for inference (Metrics are computed per multi-view set and averaged, not per batch of multi-view sets)
+batch_size: 20
+# Use mixed precision for inference
+amp:
+  enabled: true
+  amp_dtype: "bf16"
+
+model:
+  load_pretrained: true
+
+output_dir: ${machine.results_dir}/single_view_calibration
+root_data_dir: ${machine.root_data_dir}
+mapanything_metadata_dir: ${machine.mapanything_metadata_dir}
+checkpoint_path: null

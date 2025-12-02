@@ -1,4 +1,5 @@
 defaults:
+  - resolution: default
   - mvs_synth: default
   - blendedmvs: default
   - scannetppv2: default
@@ -7,7 +8,7 @@ defaults:
 # Training Set, For example: BlendedMVS(split='train', resolution=(512, 384), transform=...)
 train_dataset: ???
 # Val and/or Test Set (assumes training and benchmarking scripts are separate)
-test_dataset: "[null]"
+test_dataset: ???
 # Number of workers for dataloader
 num_workers: 4
 # Number of views parameter for multi-view datasets

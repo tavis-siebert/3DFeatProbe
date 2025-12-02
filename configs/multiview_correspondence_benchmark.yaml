@@ -1,0 +1,31 @@
+defaults:
+  - machine: euler
+  - model: mum
+  - dataset: benchmark_multiview_correspondence
+  - _self_
+
+### Benchmarking args
+seed: 0
+# Disable CUDNN Benchmark (Disable for variable resolution & number of view training)
+disable_cudnn_benchmark: true
+# Batch size for inference (Metrics are computed per multi-view set and averaged, not per batch of multi-view sets)
+batch_size: 20
+# Use mixed precision for inference
+amp:
+  enabled: true
+  amp_dtype: "bf16"
+# Voxel size (creates dim / voxel_size spaced voxels in a given dimension)
+voxel_size: 0.2
+
+# Model
+#model:
+#  model_id: backbone/mumvisiontransformer
+#  model_config:
+#    pretrained: true
+#    preprocess_images: true
+checkpoint_path: null #${machine.checkpoints_dir}/dinvo2-base_fit3d.pt
+
+# Dirs
+output_dir: ${machine.results_dir}/multiview_correspondence
+root_data_dir: ${machine.root_data_dir}
+mapanything_metadata_dir: ${machine.mapanything_metadata_dir}

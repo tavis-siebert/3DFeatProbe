@@ -1,9 +1,9 @@
 ### Config for VGGT retrain experiment
 defaults:
-  - machine: local
+  - machine: euler
   - model: vggt
   - training: vggt
-  - dataset: multi_dataset
+  - dataset: multi_dataset_train
   - _self_
 
 # -- Training
@@ -21,31 +21,39 @@ training:
       name: train-normal
       project: vggt-train
       entity: tsiebert
-  #optim:
-  #  frozen_submodules:
-  #  - "aggregator.patch_embed"
-  #checkpoint:
-  #. resume_checkpoint_path: /cluster/project/cvg//students/tsiebert/checkpoints/checkpoint-last_vggt-dinov2_pretrained.pt
+  optim:
+    frozen_submodules:
+      - "aggregator.patch_embed"
+  checkpoint:
+    resume_checkpoint_path: null
 
 # -- Model
 model:
-  pretrained_patch_embed_path: dinov2_pretrained # ywyue/FiT3D, TODO: own ft model
   model_config:
     embed_dim: 768
-    enable_point: false
-    enable_track: false
+    enable_point: true
+    patch_emed_config:
+      model_id: feature_extractor/dinov2
+      model_config:
+        checkpoint_path: null
+        backbone: "base"
+        use_timm: true
+        with_registers: true
+        preprocess_images: false
     aggregator_config:
-      depth: 12
+      depth: 8
       num_heads: 8
       mlp_ratio: 2
       num_register_tokens: 4
-      patch_embed: "dinov2_vitb14_reg"
     camera_head_config:
       trunk_depth: 4
       num_heads: 8
       mlp_ratio: 2
     depth_head_config:
-      intermediate_layer_idx: [2, 5, 8, 11]
+      intermediate_layer_idx: [1, 3, 5, 7]
+    # uncomment if using point head
+    point_head_config:
+      intermediate_layer_idx: [1, 3, 5, 7]
 
 # Paths for convenience
 root_data_dir: ${machine.root_data_dir}

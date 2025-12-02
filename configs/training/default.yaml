@@ -1,5 +1,4 @@
 defaults:
-  - resolution: default
   - logging: default
   - checkpoint: default
   - distributed: default

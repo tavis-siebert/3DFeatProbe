@@ -2,11 +2,17 @@
 .vscode/
 __pycache__/
 
+# Folders
 logs/
+results/
 test/
 scripts/datasets/
 external/
 wandb/
+
+# Specific files
+src/models/backbones/siglip.py
+configs/machine/euler.yaml
 
 *.sh
 *.html

@@ -1,5 +1,5 @@
 # general
-ROOT: ${root_data_dir}/blendedmvs
+ROOT: ${root_data_dir}/blendedmvs_wai
 dataset_metadata_dir: ${mapanything_metadata_dir}
 
 # train args
@@ -19,7 +19,7 @@ train:
       num_views=${dataset.blendedmvs.train.num_views},
       covisibility_thres=${dataset.blendedmvs.train.covisibility_thres})"
   split: 'train'
-  dataset_resolution: ${training.resolution.train}
+  dataset_resolution: ${dataset.resolution.train}
   principal_point_centered: ${dataset.principal_point_centered}
   aug_crop: 16
   transform: 'colorjitter+grayscale+gaublur'
@@ -46,7 +46,7 @@ val:
       num_views=${dataset.blendedmvs.val.num_views},
       covisibility_thres=${dataset.blendedmvs.val.covisibility_thres})"
   split: 'val'
-  dataset_resolution: ${training.resolution.val.blendedmvs}
+  dataset_resolution: ${dataset.resolution.val.blendedmvs}
   principal_point_centered: ${dataset.principal_point_centered}
   seed: 777
   transform: 'imgnorm'

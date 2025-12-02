@@ -1,17 +1,14 @@
 import logging
 import contextlib
 import time
-import numpy as np
 import wandb
 from math import isfinite
 from omegaconf import DictConfig
-from typing import Dict, Union
 from vggt.utils.pose_enc import pose_encoding_to_extri_intri
 from vggt.utils.geometry import unproject_depth_map_to_point_map
 
 from src.datasets.wai_dataset import build_wai_dataloader
 from src.models.vggt import VGGT
-from src.utils.camera import invert_pose
 from src.training.losses.multitask_loss import MultitaskLoss
 from src.training.distributed import all_reduce_mean
 from src.training.utils import *
@@ -62,60 +59,18 @@ class VGGTTrainer(Trainer):
         else:
             model_args = self.model_cfg.model_config
             # check img_size = train_resolution
-            train_h, train_w = eval(self.train_cfg.resolution.train)
+            train_h, train_w = eval(self.dataset_cfg.resolution.train)
             if train_h != train_w:
                 raise ValueError(f"VGGT must be trained with square images. Got {(train_h, train_w)}")
             if train_h != model_args.img_size:
                 logging.warning(f"Got train image size {train_h} and config image size {model_args.img_size}. Defaulting to training size")
                 model_args.img_size = train_h
-
             self.model = VGGT(**model_args)
         logging.info(f"Initialized Model: {str(self.model)}")
-
-        # swap out patch embed
-        patch_embed_ckpt_path = self.model_cfg.pretrained_patch_embed_path
-        if patch_embed_ckpt_path:
-            logging.info(f"Switching patch embed to '{patch_embed_ckpt_path}'")
-            self._load_specific_patch_embed(patch_embed_ckpt_path)
 
         # move to device
         self.model.to(self.device)
     
-    def _load_specific_patch_embed(self, ckpt_path: str) -> Dict:
-        """
-        This is a VERY BRITTLE function for our experiments.
-        Hopefully it is clear how the function works and how to structure the config.
-        Specifically, ensure to set `pretrained_patch_embed_path` and either rename the checkpoint or change this function
-        to accomodate your checkpoint
-        
-        Args:
-            ckpt_path (str): the torch hub or local path to the dinov2 weights that will be used to initialize VGGT's patch_embed
-        """
-        ckpt_config = {}
-        if "fit3d" in ckpt_path.lower():
-            patch_embed = torch.hub.load("ywyue/FiT3D", "dinov2_base_fine")
-            state_dict = patch_embed.state_dict()
-            ckpt_config["checkpoint_state_dict"] = state_dict
-            ckpt_config["original_image_size"] = 518
-        elif "dinov2" in ckpt_path.lower():
-            # assumes a variant of timm DINOv2 since we either load its pretrained weights or use our fine-tuned version
-            if "pretrained" in ckpt_path.lower():
-                from src.models.backbones import DINOv2
-                patch_embed = DINOv2(backbone="base", with_registers=True, use_timm=True, preprocess_images=False)
-            else:
-                patch_embed = torch.load(ckpt_path, map_location='cpu')
-            state_dict = {
-                k.replace("model.", ""): v for k, v in patch_embed.state_dict().items()
-            }
-            ckpt_config["checkpoint_state_dict"] = state_dict
-            ckpt_config["original_image_size"] = 518
-        else:
-            raise ValueError(f"Failed to match '{ckpt_path}' to one of our state dicts")
-        
-        self.model.load_pretrained_patch_embed(ckpt_config)
-
-        del patch_embed
-
     # -- Setup loss / criterion
     def _setup_loss(self):
         self.loss = MultitaskLoss(**self.loss_cfg.loss_config)
@@ -123,76 +78,10 @@ class VGGTTrainer(Trainer):
     #-------------------#
     #   Functionality   #
     #-------------------#
-
-    def _convert_mapa_batch_to_vggt(self, views: List[Dict]) -> Dict[str, torch.Tensor]:
-        """
-        Convert map-anything's list-of-view-dicts format to VGGT's batched format.
-        
-        Args:
-            views: List of view dictionaries from map-anything dataloader.
-            
-        Returns:
-            expected batch for VGGT input and loss
-        """ 
-        def __convert_from_numpy(arr: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
-            if isinstance(arr, np.ndarray):
-                return torch.from_numpy(arr)
-            return arr
-
-        image_batch, depth_batch, valid_mask_batch = [], [], []
-        intrinsics_batch, extrinsics_batch = [], []
-        world_pts_batch, cam_pts_batch = [], []
-
-        for view in views:
-            # rgb image
-            image = view['img'] # [B, 3, H, W]
-            image_batch.append(__convert_from_numpy(image))
-
-            # depth map
-            depthmap = view['depthmap']  # [B, H, W, 1]
-            depth_batch.append(__convert_from_numpy(depthmap))
-
-            # mask
-            valid_mask = view['valid_mask']  # [B, H, W]
-            valid_mask_batch.append(__convert_from_numpy(valid_mask))
-
-            # camera intrinsics
-            intrinsics = view['camera_intrinsics']  # [B, 3, 3]
-            intrinsics_batch.append(__convert_from_numpy(intrinsics))
-
-            # camera pose (ggt expects world2cam)
-            cam2world = __convert_from_numpy(view['camera_pose']) # [B, 4, 4]
-            world2cam = invert_pose(cam2world)
-            pose = world2cam[:, :3, :]  # [B, 3, 4]
-            extrinsics_batch.append(pose)
-
-            # point maps
-            pts3d = view['pts3d']  # [B, H, W, 3]
-            pts3d_cam = view["pts3d_cam"]
-            world_pts_batch.append(__convert_from_numpy(pts3d))
-            cam_pts_batch.append(__convert_from_numpy(pts3d_cam))
-
-        # stack and arrange as (B, num_views, ...)
-        image_batch = torch.stack(image_batch, dim=1)
-        depth_batch = torch.stack(depth_batch, dim=1).squeeze()
-        valid_mask_batch = torch.stack(valid_mask_batch, dim=1)
-        intrinsics_batch = torch.stack(intrinsics_batch, dim=1)
-        extrinsics_batch = torch.stack(extrinsics_batch, dim=1)
-        world_pts_batch = torch.stack(world_pts_batch, dim=1)
-        cam_pts_batch = torch.stack(cam_pts_batch, dim=1)
-        
-        return {
-            "images": image_batch,
-            "extrinsics": extrinsics_batch,
-            "intrinsics": intrinsics_batch,
-            "depths": depth_batch,
-            "world_points": world_pts_batch,
-            "cam_points": cam_pts_batch,
-            "point_masks": valid_mask_batch,
-        }
-
     def _process_batch(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """Process batch with normalization"""
+        # Convert from MapA/wai format
+        batch = convert_mapa_batch_to_vggt(batch)
+
         # Normalize camera extrinsics and points
         normalized_extrinsics, normalized_cam_points, normalized_world_points, normalized_depths = \
             normalize_camera_extrinsics_and_points_batch(
@@ -268,7 +157,6 @@ class VGGTTrainer(Trainer):
             data_time.update(time.time() - batch_start_time)
             
             # Process batch
-            batch = self._convert_mapa_batch_to_vggt(batch)
             batch = self._process_batch(batch)
             batch = move_data_to_device(batch, self.device, non_blocking=True)
             
@@ -387,7 +275,6 @@ class VGGTTrainer(Trainer):
                 data_time.update(time.time() - batch_start_time)
                 
                 # Process batch
-                batch = self._convert_mapa_batch_to_vggt(batch)  # to vggt format
                 batch = self._process_batch(batch)  # normalize
                 batch = move_data_to_device(batch, self.device, non_blocking=True)  # to device
                 last_batch = batch

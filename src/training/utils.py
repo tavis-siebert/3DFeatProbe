@@ -87,6 +87,77 @@ def set_seeds(seed_value, rank: int=0):
 #-------------------#
 #  Data Processing  #
 #-------------------#
+def convert_mapa_batch_to_vggt(views: List[Dict], world2cam: bool = True) -> Dict[str, torch.Tensor]:
+    """
+    Convert map-anything's list-of-view-dicts format to VGGT's batched format.
+    More generally it converts the map-anything per-view structure to a batch 
+    with B, num_views, ... shape for each modality
+    
+    Args:
+        views: List of view dictionaries from map-anything dataloader
+        world2cam (bool): If True, convert cam2world poses to world2cam extrinsics. Default = True (VGGT expects world2cam)
+        
+    Returns:
+        expected batch for VGGT input and loss
+    """ 
+    def __convert_from_numpy(arr: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
+        if isinstance(arr, np.ndarray):
+            return torch.from_numpy(arr)
+        return arr
+
+    image_batch, depth_batch, valid_mask_batch = [], [], []
+    intrinsics_batch, extrinsics_batch = [], []
+    world_pts_batch, cam_pts_batch = [], []
+
+    for view in views:
+        # rgb image
+        image = view['img'] # [B, 3, H, W]
+        image_batch.append(__convert_from_numpy(image))
+
+        # depth map
+        depthmap = view['depthmap']  # [B, H, W, 1]
+        depth_batch.append(__convert_from_numpy(depthmap))
+
+        # mask
+        valid_mask = view['valid_mask']  # [B, H, W]
+        valid_mask_batch.append(__convert_from_numpy(valid_mask))
+
+        # camera intrinsics
+        intrinsics = view['camera_intrinsics']  # [B, 3, 3]
+        intrinsics_batch.append(__convert_from_numpy(intrinsics))
+
+        # camera pose
+        pose = __convert_from_numpy(view['camera_pose']) # [B, 4, 4]
+        if world2cam:
+            pose = invert_pose(pose)
+        extrinsics = pose[:, :3, :]  # [B, 3, 4]
+        extrinsics_batch.append(extrinsics)
+
+        # point maps
+        pts3d = view['pts3d']  # [B, H, W, 3]
+        pts3d_cam = view["pts3d_cam"]
+        world_pts_batch.append(__convert_from_numpy(pts3d))
+        cam_pts_batch.append(__convert_from_numpy(pts3d_cam))
+
+    # stack and arrange as (B, num_views, ...)
+    image_batch = torch.stack(image_batch, dim=1)
+    depth_batch = torch.stack(depth_batch, dim=1).squeeze()
+    valid_mask_batch = torch.stack(valid_mask_batch, dim=1)
+    intrinsics_batch = torch.stack(intrinsics_batch, dim=1)
+    extrinsics_batch = torch.stack(extrinsics_batch, dim=1)
+    world_pts_batch = torch.stack(world_pts_batch, dim=1)
+    cam_pts_batch = torch.stack(cam_pts_batch, dim=1)
+    
+    return {
+        "images": image_batch,
+        "extrinsics": extrinsics_batch,
+        "intrinsics": intrinsics_batch,
+        "depths": depth_batch,
+        "world_points": world_pts_batch,
+        "cam_points": cam_pts_batch,
+        "point_masks": valid_mask_batch,
+    }
+
 def normalize_camera_extrinsics_and_points_batch(
     extrinsics: torch.Tensor,
     cam_points: Optional[torch.Tensor] = None,

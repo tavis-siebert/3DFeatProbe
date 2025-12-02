@@ -1,5 +1,5 @@
 # general
-ROOT: ${root_data_dir}/mvs_synth
+ROOT: ${root_data_dir}/mvs_synth_wai
 dataset_metadata_dir: ${mapanything_metadata_dir}
 
 # train args
@@ -22,7 +22,7 @@ train:
   num_views: ${dataset.num_views}
   variable_num_views: ${dataset.train.variable_num_views}
   covisibility_thres: 0.25
-  dataset_resolution: ${training.resolution.train}
+  dataset_resolution: ${dataset.resolution.train}
   principal_point_centered: ${dataset.principal_point_centered}
   aug_crop: 16
   transform: 'colorjitter+grayscale+gaublur'
@@ -46,7 +46,7 @@ val:
       num_views=${dataset.mvs_synth.val.num_views},
       covisibility_thres=${dataset.mvs_synth.val.covisibility_thres})"
   split: 'val'
-  dataset_resolution: ${training.resolution.val.mvs_synth}
+  dataset_resolution: ${dataset.resolution.val.mvs_synth}
   principal_point_centered: ${dataset.principal_point_centered}
   seed: 777
   transform: 'imgnorm'

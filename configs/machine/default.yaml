@@ -6,3 +6,5 @@ mapanything_metadata_dir: ???
 checkpoints_dir: ???
 # Root directory to log experiments
 logging_dir: ???
+# Root directory to log eval / results
+results_dir: ???
