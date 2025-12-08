@@ -26,7 +26,7 @@ model_config:
   # whether to train with a track head
   enable_track: false
   # patch_embed config (comments show example for dinov2-base pretrained with registers)
-  patch_emed_config: null
+  patch_embed_config: null
   #  model_id: feature_extractor/dinov2
   #  model_config:
   #    checkpoint_path: null

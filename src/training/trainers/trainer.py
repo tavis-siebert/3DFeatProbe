@@ -29,6 +29,10 @@ class Trainer:
         self.dist_cfg = self.train_cfg.distributed
         self.rank, self.local_rank, self.world_size, self.distributed = init_distributed(self.dist_cfg.backend)
         
+        # Checkpointing
+        self.ckpt_cfg = self.train_cfg.checkpoint
+        self._setup_checkpointing()
+
         # Logging
         self.log_cfg = self.train_cfg.logging
         self._setup_logging()
@@ -38,10 +42,6 @@ class Trainer:
 
         self.seed = self.train_cfg.seed
         set_seeds(self.seed, self.rank)
-
-        # Checkpointing
-        self.ckpt_cfg = self.train_cfg.checkpoint
-        self._setup_checkpointing()
 
         # Dataset and Dataloaders
         self.train_loader, self.val_loader = None, None
@@ -109,6 +109,7 @@ class Trainer:
     
     # -- Set up checkpointing
     def _setup_checkpointing(self):
+        self.job_id = self.ckpt_cfg.job_id or ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(6))
         self.ckpt_dir = self.ckpt_cfg.checkpoints_dir
         self.save_freq = self.ckpt_cfg.save_freq
         logging.info(f"Checkpoints will be saved under {self.ckpt_dir} every {self.save_freq} epoch(s)")
@@ -119,18 +120,20 @@ class Trainer:
         self.log_dir = self.log_cfg.logging_dir
         setup_logging(
             __name__,
-            self.log_dir,
+            output_dir=self.log_dir,
+            logfile=f"log-{self.job_id}.txt",
             rank=self.rank
         )
 
         # setup wandb
         if self.rank == 0:
-            rand_suffix = ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(6))
             wandb.init(
-                name=self.log_cfg.wandb.name + f"_{rand_suffix}",
+                id=self.job_id,
+                name=self.log_cfg.wandb.name,
                 entity=self.log_cfg.wandb.entity,
                 project=self.log_cfg.wandb.project,
-                config=dict(self.cfg)
+                config=dict(self.cfg),
+                resume="allow"
             )
 
         # logging params

@@ -3,3 +3,6 @@ checkpoints_dir: ${checkpoints_dir}
 save_freq: 1
 # path to checkpoint
 resume_checkpoint_path: null
+# job id (useful for logging to same file or wandb run)
+# default is null which means random id will be chosen
+job_id: null

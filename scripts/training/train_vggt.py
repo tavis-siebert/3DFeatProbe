@@ -1,8 +1,12 @@
-
+import sys
 import argparse
+from pathlib import Path
 from hydra import initialize, compose
 from omegaconf import OmegaConf
 from src.training.trainers import VGGTTrainer
+
+project_root = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(project_root))
 
 def main():
     parser = argparse.ArgumentParser(description="Train model with configurable YAML file")

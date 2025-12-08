@@ -106,8 +106,10 @@ class VGGTTrainer(Trainer):
             self.train_epoch()
 
             if (self.epoch + 1) % self.save_freq == 0 and self.rank == 0:
-                ckpt_name = self._create_ckpt_name(f"checkpoint-last_vggt")
+                ckpt_name = self._create_ckpt_name(f"checkpoint-{self.job_id}_last_vggt")
                 self.save_checkpoint(ckpt_name)
+            
+            torch.cuda.reset_peak_memory_stats()
 
             if (self.epoch + 1) % self.eval_freq == 0:
                 self.val_epoch()
@@ -441,8 +443,8 @@ class VGGTTrainer(Trainer):
     #  Logging/Checkpointing  #
     #-------------------------#
     def _create_ckpt_name(self, prefix: str):
-        patch_embed_path = self.model_cfg.pretrained_patch_embed_path
-        if patch_embed_path:
-            model_id = patch_embed_path.split("/")[-1].replace(".pt", '')
+        patch_embed_conf = self.model_cfg.model_config.patch_embed_config
+        if patch_embed_conf:
+            model_id = patch_embed_conf.model_id.split('/')[-1]
             prefix += f"-{model_id}"
         return prefix

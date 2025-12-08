@@ -30,6 +30,7 @@ def direct_logger_to_stdout(logger: logging.Logger):
 def setup_logging(
     name,
     output_dir=None,
+    logfile=None,
     rank=0,
     log_level_primary="INFO",
     log_level_secondary="ERROR",
@@ -42,9 +43,15 @@ def setup_logging(
     if output_dir:
         safe_makedirs(output_dir)
         if rank == 0:
-            log_filename = os.path.join(output_dir, "log.txt")
+            logfile = logfile or "log.txt"
+            log_filename = os.path.join(output_dir, logfile)
         elif all_ranks:
-            log_filename = os.path.join(output_dir, f"log_{rank}.txt")
+            if logfile:
+                fname, extension = logfile.split('.')
+                logfile = f"{fname}_{rank}.{extension}"
+            else:
+                logfile = f"log_{rank}.txt"
+            log_filename = os.path.join(output_dir, logfile)
 
     logger = logging.getLogger(name)
     logger.setLevel(log_level_primary)

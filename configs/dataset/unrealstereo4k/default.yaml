@@ -1,0 +1,54 @@
+ROOT: ${root_data_dir}/unrealstereo4k_wai
+dataset_metadata_dir: ${mapanything_metadata_dir}
+
+train:
+  dataset_str:
+    "UnrealStereo4KWAI(
+    split='${dataset.unrealstereo4k.train.split}',
+    resolution=${dataset.unrealstereo4k.train.dataset_resolution},
+    principal_point_centered=${dataset.unrealstereo4k.train.principal_point_centered},
+    aug_crop=${dataset.unrealstereo4k.train.aug_crop},
+    transform='${dataset.unrealstereo4k.train.transform}',
+    data_norm_type='${dataset.unrealstereo4k.train.data_norm_type}',
+    ROOT='${dataset.unrealstereo4k.ROOT}',
+    dataset_metadata_dir='${dataset.unrealstereo4k.dataset_metadata_dir}',
+    overfit_num_sets=${dataset.unrealstereo4k.train.overfit_num_sets},
+    variable_num_views=${dataset.unrealstereo4k.train.variable_num_views},
+    num_views=${dataset.unrealstereo4k.train.num_views},
+    covisibility_thres=${dataset.unrealstereo4k.train.covisibility_thres})"
+  split: 'train'
+  dataset_resolution: ${dataset.resolution.train}
+  principal_point_centered: ${dataset.principal_point_centered}
+  aug_crop: 16
+  transform: 'colorjitter+grayscale+gaublur'
+  data_norm_type: ${model.data_norm_type}
+  overfit_num_sets: null
+  variable_num_views: ${dataset.train.variable_num_views}
+  num_views: ${dataset.num_views}
+  covisibility_thres: 0.25
+
+val:
+  dataset_str:
+    "UnrealStereo4KWAI(
+      split='${dataset.unrealstereo4k.val.split}',
+      resolution=${dataset.unrealstereo4k.val.dataset_resolution},
+      principal_point_centered=${dataset.unrealstereo4k.val.principal_point_centered},
+      seed=${dataset.unrealstereo4k.val.seed},
+      transform='${dataset.unrealstereo4k.val.transform}',
+      data_norm_type='${dataset.unrealstereo4k.val.data_norm_type}',
+      ROOT='${dataset.unrealstereo4k.ROOT}',
+      dataset_metadata_dir='${dataset.unrealstereo4k.dataset_metadata_dir}',
+      overfit_num_sets=${dataset.unrealstereo4k.val.overfit_num_sets},
+      variable_num_views=${dataset.unrealstereo4k.val.variable_num_views},
+      num_views=${dataset.unrealstereo4k.val.num_views},
+      covisibility_thres=${dataset.unrealstereo4k.val.covisibility_thres})"
+  split: 'val'
+  dataset_resolution: ${dataset.resolution.val.unrealstereo4k}
+  principal_point_centered: ${dataset.principal_point_centered}
+  seed: 777
+  transform: 'imgnorm'
+  data_norm_type: ${model.data_norm_type}
+  overfit_num_sets: null
+  variable_num_views: ${dataset.val.variable_num_views}
+  num_views: ${dataset.num_views}
+  covisibility_thres: 0.25
