@@ -105,16 +105,17 @@ class VGGTTrainer(Trainer):
             
             self.train_epoch()
 
-            if (self.epoch + 1) % self.save_freq == 0 and self.rank == 0:
-                ckpt_name = self._create_ckpt_name(f"checkpoint-{self.job_id}_last_vggt")
-                self.save_checkpoint(ckpt_name)
-            
             torch.cuda.reset_peak_memory_stats()
 
             if (self.epoch + 1) % self.eval_freq == 0:
                 self.val_epoch()
             
             self.epoch += 1
+
+            # ensures ckpt picks up on next epoch and correct global steps
+            if self.epoch % self.save_freq == 0 and self.rank == 0:
+                ckpt_name = self._create_ckpt_name(f"checkpoint-{self.job_id}_last_vggt")
+                self.save_checkpoint(ckpt_name)
 
     def train_epoch(self):
         self.model.train()
