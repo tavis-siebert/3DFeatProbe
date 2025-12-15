@@ -116,6 +116,8 @@ class VGGTTrainer(Trainer):
             if self.epoch % self.save_freq == 0 and self.rank == 0:
                 ckpt_name = self._create_ckpt_name(f"checkpoint-{self.job_id}_last_vggt")
                 self.save_checkpoint(ckpt_name)
+                ckpt_name = self._create_ckpt_name(f"checkpoint-{self.job_id}_epoch-{self.epoch}_vggt")
+                self.save_checkpoint(ckpt_name)
 
     def train_epoch(self):
         self.model.train()
@@ -390,7 +392,7 @@ class VGGTTrainer(Trainer):
                     # Forward pass
                     loss_dict, _ = self._step(chunked_batch, phase, loss_trackers)
                 
-                loss = loss_dict["objective"]
+                loss = loss_dict["loss_objective"]
                 loss_key = f"Loss/{phase}_loss_objective"
                 batch_size = chunked_batch["images"].shape[0]
                 
@@ -429,9 +431,10 @@ class VGGTTrainer(Trainer):
         batch_size = batch["images"].shape[0]
         metrics_to_log = self.train_metrics_to_log if phase == "train" else self.val_metrics_to_log
         for key in metrics_to_log:
-            if key == "loss_objective" and phase == "val":
-                key = "objective"
             if key in loss_dict:
+                # will be updated in _run_steps_on_batch_chunks
+                if phase == "train" and key == "loss_objective":
+                    continue
                 value = loss_dict[key].item() if torch.is_tensor(loss_dict[key]) else loss_dict[key]
                 loss_key = f"Loss/{phase}_{key}"
                 if loss_key in loss_trackers:

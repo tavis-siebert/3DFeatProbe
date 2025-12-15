@@ -1,60 +1,60 @@
 ### Config for VGGT retrain experiment
 defaults:
-  - machine: clariden
-  - model: vggt
-  - training: vggt
-  - dataset: multi_dataset_train
-  - _self_
+ - machine: clariden
+ - model: vggt
+ - training: vggt
+ - dataset: multi_dataset_train
+ - _self_
 
 # -- Training
 training:
-  # - uncomment / change if memory issues
-  max_num_of_imgs_per_gpu: 48
-  accum_steps: 2
-  # - uncomment / change if debugging
-  max_epochs: 50
-  #max_train_iters: 3
-  #max_val_iters: 3
-  logging:
-    log_freq: 10  # set to 1 for debugging
-    wandb:
-      name: train-vggt-dinov2base
-      project: vggt-train
-      entity: tsiebert
-  optim:
-    frozen_submodules:
-      - "aggregator.patch_embed"
-  checkpoint:
-    job_id: 27tavi
-    resume_checkpoint_path: null #/capstor/scratch/cscs/tsiebert/checkpoints/checkpoint-last_vggt.pt
+ # - uncomment / change if memory issues
+ max_num_of_imgs_per_gpu: 48
+ accum_steps: 2
+ # - uncomment / change if debugging
+ max_epochs: 50
+ #max_train_iters: 3
+ #max_val_iters: 3
+ logging:
+   log_freq: 10  # set to 1 for debugging
+   wandb:
+     name: train-vggt-dinov2base
+     project: vggt-train
+     entity: tsiebert
+ optim:
+   frozen_submodules:
+     - "aggregator.patch_embed"
+ checkpoint:
+   job_id: 27tavi
+   resume_checkpoint_path: /capstor/scratch/cscs/tsiebert/checkpoints/checkpoint-27tavi_last_vggt-dinov2.pt
 
 # -- Model
 model:
-  model_config:
-    embed_dim: 768
-    enable_point: true
-    patch_embed_config:
-      model_id: feature_extractor/dinov2
-      model_config:
-        checkpoint_path: null
-        backbone: "base"
-        use_timm: true
-        with_registers: true
-        preprocess_images: false  # aggregator does this for us
-    aggregator_config:
-      depth: 8
-      num_heads: 8
-      mlp_ratio: 2
-      num_register_tokens: 4
-    camera_head_config:
-      trunk_depth: 4
-      num_heads: 8
-      mlp_ratio: 2
-    depth_head_config:
-      intermediate_layer_idx: [1, 3, 5, 7]
-    # uncomment if using point head
-    point_head_config:
-      intermediate_layer_idx: [1, 3, 5, 7]
+ model_config:
+   embed_dim: 768
+   enable_point: true
+   patch_embed_config:
+     model_id: feature_extractor/dinov2
+     model_config:
+       checkpoint_path: null
+       backbone: "base"
+       use_timm: true
+       with_registers: true
+       preprocess_images: false  # aggregator does this for us
+   aggregator_config:
+     depth: 8
+     num_heads: 8
+     mlp_ratio: 2
+     num_register_tokens: 4
+   camera_head_config:
+     trunk_depth: 4
+     num_heads: 8
+     mlp_ratio: 2
+   depth_head_config:
+     intermediate_layer_idx: [1, 3, 5, 7]
+   # uncomment if using point head
+   point_head_config:
+     intermediate_layer_idx: [1, 3, 5, 7]
 
 # Paths for convenience
 root_data_dir: ${machine.root_data_dir}

@@ -70,7 +70,7 @@ class MultitaskLoss(torch.nn.Module):
         if "track" in predictions:
             raise NotImplementedError("Track loss is not cleaned up yet")
         
-        loss_dict["objective"] = total_loss
+        loss_dict["loss_objective"] = total_loss
 
         return loss_dict
 

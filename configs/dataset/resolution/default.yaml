@@ -4,7 +4,7 @@
 # The latter is the cleaner / recommended approach
 
 # Train resolution
-# default is 518, 518 like VGGT, but run-specific configs can override
+# default is (518, 518) like VGGT, but run-specific configs can override
 train: (518, 518)
 # Val/Test resolution
 val:
