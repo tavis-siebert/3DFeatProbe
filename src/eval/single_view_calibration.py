@@ -57,6 +57,61 @@ def get_all_info_for_metric_computation(batch, preds):
 
     return gt_info, pr_info
 
+def compute_results_for_batcb(batch, preds, per_scene_results=None, reduce_mean=False):
+    """
+    Compute results for a batch 
+    
+    Args:
+        batch: Input batch
+        preds: Model output for the batch
+        per_scene_results: A dict for per-scene results. Modified in place if not none
+        reduce_mean: If True, scores are averaged across the batch
+    Returns:
+        Scores for ray_dirs_err_deg metric
+    """
+    # Get all the information needed to compute the metrics
+    gt_info, pr_info = get_all_info_for_metric_computation(batch, preds)
+    # Loop over each set in the batch and compute the metrics across all views
+    n_views = len(batch)
+    batch_size = batch[0]["img"].shape[0]
+    scores = {"ray_dirs_err_deg": 0.0}
+
+    for batch_idx in range(batch_size):
+        # Get the scene of the multi-view set
+        scene = batch[0]["label"][batch_idx]
+
+        # Compute the metrics across all views
+        ray_dirs_err_deg_across_views = []
+        for view_idx in range(n_views):
+            # Compute the l2 norm of the ray directions and convert it to angular error in degrees
+            ray_dirs_l2 = torch.norm(
+                gt_info["ray_directions"][view_idx][batch_idx]
+                - pr_info["ray_directions"][view_idx][batch_idx],
+                dim=-1,
+            )
+            ray_dirs_err_deg_curr_view = (
+                l2_distance_of_unit_ray_directions_to_angular_error(ray_dirs_l2)
+            )
+            ray_dirs_err_deg_curr_view = torch.mean(ray_dirs_err_deg_curr_view)
+            ray_dirs_err_deg_across_views.append(
+                ray_dirs_err_deg_curr_view.cpu().numpy()
+            )
+
+        # Compute the average across all views
+        ray_dirs_err_deg_curr_set = np.mean(ray_dirs_err_deg_across_views).item()
+        scores["ray_dirs_err_deg"] += ray_dirs_err_deg_curr_set
+
+        # Append the metrics to the respective lists
+        if per_scene_results is not None:
+            per_scene_results[scene]["ray_dirs_err_deg"].append(
+                ray_dirs_err_deg_curr_set
+            )
+    
+    if reduce_mean:
+        scores = {k: v / batch_size for k, v in scores.items()}
+    
+    return scores
+
 @torch.no_grad()
 def benchmark(args):
     log.info("Output Directory: " + args.output_dir)
@@ -156,7 +211,6 @@ def benchmark(args):
 
         # Loop over the batches
         for batch in data_loader:
-            n_views = len(batch)
             # Remove unnecessary indices
             for view in batch:
                 view["idx"] = view["idx"][2:]
@@ -188,39 +242,8 @@ def benchmark(args):
                 preds = model(images)
                 preds = model.convert_preds_to_mapa(preds)
 
-            # Get all the information needed to compute the metrics
-            gt_info, pr_info = get_all_info_for_metric_computation(batch, preds)
-
-            # Loop over each set in the batch and compute the metrics across all views
-            batch_size = batch[0]["img"].shape[0]
-            for batch_idx in range(batch_size):
-                # Get the scene of the multi-view set
-                scene = batch[0]["label"][batch_idx]
-
-                # Compute the metrics across all views
-                ray_dirs_err_deg_across_views = []
-                for view_idx in range(n_views):
-                    # Compute the l2 norm of the ray directions and convert it to angular error in degrees
-                    ray_dirs_l2 = torch.norm(
-                        gt_info["ray_directions"][view_idx][batch_idx]
-                        - pr_info["ray_directions"][view_idx][batch_idx],
-                        dim=-1,
-                    )
-                    ray_dirs_err_deg_curr_view = (
-                        l2_distance_of_unit_ray_directions_to_angular_error(ray_dirs_l2)
-                    )
-                    ray_dirs_err_deg_curr_view = torch.mean(ray_dirs_err_deg_curr_view)
-                    ray_dirs_err_deg_across_views.append(
-                        ray_dirs_err_deg_curr_view.cpu().numpy()
-                    )
-
-                # Compute the average across all views
-                ray_dirs_err_deg_curr_set = np.mean(ray_dirs_err_deg_across_views)
-
-                # Append the metrics to the respective lists
-                per_scene_results[scene]["ray_dirs_err_deg"].append(
-                    ray_dirs_err_deg_curr_set.item()
-                )
+            # Compute results for batch and append to per_scene_results
+            compute_results_for_batcb(batch, preds, per_scene_results)
 
         # Save the per scene results to a json file
         with open(
