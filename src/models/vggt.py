@@ -74,13 +74,14 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
 
         # Aggregator
         agg_cfg = dict(img_size=img_size, patch_size=patch_size, embed_dim=embed_dim)
-        if aggregator_config:
+        if aggregator_config is not None:
             agg_cfg.update(aggregator_config)
 
         self.aggregator = Aggregator(**agg_cfg)
 
         # Patch emebd
-        self.aggregator.patch_embed = self.load_patch_embed(patch_embed_config)
+        if patch_embed_config is not None:
+            self.aggregator.patch_embed = self.load_patch_embed(patch_embed_config)
 
         # Camera head
         if enable_camera:
@@ -121,16 +122,12 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
             self.track_head = None
     
     def load_patch_embed(self, patch_embed_config: Dict):
-        from src.models.feature_extractors import DINOv2, get_extractor_from_id
+        from src.models.feature_extractors import get_extractor_from_id
 
-        if patch_embed_config:
-            patch_embed_model = get_extractor_from_id(
-                patch_embed_config["model_id"].split('/')[-1],
-                patch_embed_config["model_config"]
-            )
-        else:
-            # defaults to dinov2-large with registers
-            patch_embed_model = DINOv2(backbone="large", use_timm=True, with_registers=True, preprocess_images=False)
+        patch_embed_model = get_extractor_from_id(
+            patch_embed_config["model_id"].split('/')[-1],
+            patch_embed_config["model_config"]
+        )
         
         assert patch_embed_model.patch_size == self.patch_size,\
              f"Model initialized with patch size {self.patch_size} but loaded patch_embed model with patch size {patch_embed_model.patch_size}"
@@ -235,7 +232,7 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
         """
         if not ("pose_enc" in preds and "depth" in preds):
             raise ValueError("Need at least camera and depth predictions to convert to map-anything format")
-        _, num_views, H, W = preds["images"].shape
+        _, num_views, _, H, W = preds["images"].shape
 
         pose_enc = preds["pose_enc"]
         extrinsic, intrinsic = pose_encoding_to_extri_intri(
@@ -255,7 +252,6 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
             curr_view_confidence = depth_conf[:, view_idx, ...]
 
             # get the camera frame pointmaps
-            #TODO: if point head, use those points
             curr_view_pts3d_cam, _ = depthmap_to_camera_frame(
                 curr_view_depth_z, curr_view_intrinsic
             )
