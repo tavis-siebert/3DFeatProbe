@@ -1,12 +1,8 @@
 defaults:
-  - default
+  - feature_extractor
 
 model_id: feature_extractor/dinov2
-# alternatively, specify the Uniception preprocessor and set preprocess_image to false
-data_norm_type: "identity"
 model_config:
-  checkpoint_path: null # /cluster/project/cvg/students/tsiebert/checkpoints/dinvo2-base_fit3d.pt
   backbone: "base"
   use_timm: true
   with_registers: true
-  preprocess_images: true

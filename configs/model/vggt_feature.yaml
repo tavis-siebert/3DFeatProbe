@@ -1,0 +1,8 @@
+defaults:
+  - feature_extractor
+
+model_id: feature_extractor/vggtfeatureextractor
+data_norm_type: "identity"
+model_config:
+  vggt_config: null      # the config used (if loading custom checkpoint)
+  layer_types: ['all']   # the layers to probe

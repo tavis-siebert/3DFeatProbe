@@ -1,0 +1,11 @@
+defaults:
+  - default
+
+# all feature extractors implement their own preprocessor
+data_norm_type: "identity"
+# config
+model_config:
+  # checkpoint_path (if null, uses pretrained weights)
+  checkpoint_path: null
+  # whether to preprocess images (default true assumes model is run for inference only)
+  preprocess_images: true

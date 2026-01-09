@@ -35,7 +35,7 @@ model_config:
   #    with_registers: true
   #    preprocess_images: false
   # aggregator config (e.g. change num_layers, patch embed type)
-  # null => use vggt default
+  # NOTE: if null, will use randomly initialized dinov2 large with registers
   aggregator_config: null
   # camera head config
   camera_head_config: null
