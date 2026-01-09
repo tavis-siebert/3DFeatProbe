@@ -9,11 +9,18 @@ resolution:
   val:
     eth3d: '[(518, 518), (518, 392), (518, 336), (518, 294), (518, 252), (518, 168), (392, 518), (336, 518), (294, 518), (252, 518)]'
     scannetppv2: '[(518, 518), (518, 392), (518, 336), (518, 294), (518, 252), (518, 168), (392, 518), (336, 518), (294, 518), (252, 518)]'
+    blendedmvs: '[(518, 518), (518, 392), (518, 336), (518, 294), (518, 252), (518, 168), (392, 518), (336, 518), (294, 518), (252, 518)]'
+    mvs_synth: '[(518, 518), (518, 392), (518, 336), (518, 294), (518, 252), (518, 168), (392, 518), (336, 518), (294, 518), (252, 518)]'
+    unrealstereo4k: '[(518, 518), (518, 392), (518, 336), (518, 294), (518, 252), (518, 168), (392, 518), (336, 518), (294, 518), (252, 518)]'
 
 # Test Set
-# Sample 20 frames from each scene
+# Sample 20 multi-view sets from each scene
 # ETH3D: 13 scenes
 # ScanNet++V2: 30 scenes
+# BlendedMVS: 43 scenes
+# MVSSynth: 6 scenes
+# Unrealstereo4k: 1 scene
 test_dataset:
   "+ 260 @ ${dataset.eth3d.test.dataset_str}
-  + 600 @ ${dataset.scannetppv2.test.dataset_str}"
+  + 120 @ ${dataset.mvs_synth.val.dataset_str}
+  + 600 @ {dataset.scannetppv2.val.dataset_str}"

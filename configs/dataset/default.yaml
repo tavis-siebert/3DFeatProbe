@@ -4,6 +4,7 @@ defaults:
   - blendedmvs: default
   - scannetppv2: default
   - unrealstereo4k: default
+  - mpsd: default
   - eth3d: default
 
 # Training Set, For example: BlendedMVS(split='train', resolution=(512, 384), transform=...)

@@ -1,0 +1,54 @@
+ROOT: ${root_data_dir}/mpsd_subset_wai
+dataset_metadata_dir: ${mapanything_metadata_dir}/custom_splits
+
+train:
+  dataset_str:
+    "MPSDWAI(
+      split='${dataset.mpsd.train.split}',
+      resolution=${dataset.mpsd.train.dataset_resolution},
+      principal_point_centered=${dataset.mpsd.train.principal_point_centered},
+      aug_crop=${dataset.mpsd.train.aug_crop},
+      transform='${dataset.mpsd.train.transform}',
+      data_norm_type='${dataset.mpsd.train.data_norm_type}',
+      ROOT='${dataset.mpsd.ROOT}',
+      dataset_metadata_dir='${dataset.mpsd.dataset_metadata_dir}',
+      overfit_num_sets=${dataset.mpsd.train.overfit_num_sets},
+      variable_num_views=${dataset.mpsd.train.variable_num_views},
+      num_views=${dataset.mpsd.train.num_views},
+      covisibility_thres=${dataset.mpsd.train.covisibility_thres})"
+  split: 'train'
+  dataset_resolution: ${dataset.resolution.train}
+  principal_point_centered: ${dataset.principal_point_centered}
+  aug_crop: 16
+  transform: 'colorjitter+grayscale+gaublur'
+  data_norm_type: ${model.data_norm_type}
+  overfit_num_sets: null
+  variable_num_views: ${dataset.train.variable_num_views}
+  num_views: ${dataset.num_views}
+  covisibility_thres: 0.15
+
+val:
+  dataset_str:
+    "MPSDWAI(
+      split='${dataset.mpsd.val.split}',
+      resolution=${dataset.mpsd.val.dataset_resolution},
+      principal_point_centered=${dataset.mpsd.val.principal_point_centered},
+      seed=${dataset.mpsd.val.seed},
+      transform='${dataset.mpsd.val.transform}',
+      data_norm_type='${dataset.mpsd.val.data_norm_type}',
+      ROOT='${dataset.mpsd.ROOT}',
+      dataset_metadata_dir='${dataset.mpsd.dataset_metadata_dir}',
+      overfit_num_sets=${dataset.mpsd.val.overfit_num_sets},
+      variable_num_views=${dataset.mpsd.val.variable_num_views},
+      num_views=${dataset.mpsd.val.num_views},
+      covisibility_thres=${dataset.mpsd.val.covisibility_thres})"
+  split: 'val'
+  dataset_resolution: ${dataset.resolution.val.mpsd}
+  principal_point_centered: ${dataset.principal_point_centered}
+  seed: 777
+  transform: 'imgnorm'
+  data_norm_type: ${model.data_norm_type}
+  overfit_num_sets: null
+  variable_num_views: ${dataset.val.variable_num_views}
+  num_views: ${dataset.num_views}
+  covisibility_thres: 0.15

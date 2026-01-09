@@ -1,7 +1,7 @@
 defaults:
   - default
 
-num_views: 4
+num_views: 2
 
 # Test Set
 # Sample 20 multi-view sets from each scene

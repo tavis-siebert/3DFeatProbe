@@ -1,5 +1,5 @@
-ROOT: ${root_data_dir}/scannetppv2_wai
-dataset_metadata_dir: ${mapanything_metadata_dir}
+ROOT: ${root_data_dir}/scannetppv2_subset_wai
+dataset_metadata_dir: ${mapanything_metadata_dir}/custom_splits
 
 train:
   dataset_str:
