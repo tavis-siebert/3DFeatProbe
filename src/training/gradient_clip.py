@@ -66,7 +66,7 @@ class GradientClipper:
         remaining_params = []
         for name, param in model.named_parameters():
             if param.requires_grad and param not in all_clipped_params:
-                remaining_params.append(param)
+                remaining_params.append(name)
 
         if len(remaining_params) > 0:
             print(f"Found {len(remaining_params)} parameters that won't be clipped")

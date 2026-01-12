@@ -2,14 +2,14 @@ import argparse
 from hydra import initialize, compose
 from omegaconf import OmegaConf
 
-from src.eval.multiview_correspondence import benchmark
+from src.eval.dense_n_view import benchmark
 
 def main():
-    parser = argparse.ArgumentParser(description="Benchmark model on multiview correspondence benchmark with config file")
+    parser = argparse.ArgumentParser(description="Benchmark model on multi-view benchmark with config file")
     parser.add_argument(
         "--config", 
         type=str, 
-        default="multiview_correspondence_benchmark",
+        default="dense_n_view_benchmark",
         help="Name of the config file (without .yaml extension)"
     )
     args = parser.parse_args()

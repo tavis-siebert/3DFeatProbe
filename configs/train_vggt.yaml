@@ -1,32 +1,49 @@
 ### Config for VGGT retrain experiment
 defaults:
- - machine: clariden
- - model: vggt
- - training: vggt
- - dataset: multi_dataset_train
- - _self_
+  - machine: clariden
+  - model: vggt
+  - training: vggt
+  - dataset: multi_dataset_train
+  - _self_
 
 # -- Training
 training:
- # - uncomment / change if memory issues
- max_num_of_imgs_per_gpu: 48
- accum_steps: 2
- # - uncomment / change if debugging
- max_epochs: 50
- #max_train_iters: 3
- #max_val_iters: 3
- logging:
-   log_freq: 10  # set to 1 for debugging
-   wandb:
-     name: train-vggt-dinov2base
-     project: vggt-train
-     entity: tsiebert
- optim:
-   frozen_submodules:
-     - "aggregator.patch_embed"
- checkpoint:
-   job_id: 27tavi
-   resume_checkpoint_path: /capstor/scratch/cscs/tsiebert/checkpoints/checkpoint-27tavi_last_vggt-dinov2.pt
+  max_num_of_imgs_per_gpu: 48  # change if memory issues
+  accum_steps: 2               # change if memory issues
+  max_epochs: 25               # change if debugging
+  #max_train_iters: 3          # uncomment / change if debugging
+  #max_val_iters: 2            # uncomment / change if debugging
+  logging:
+    log_freq: 25               # set to 1 for debugging
+    log_vis_freq: 3
+    wandb:
+      name: train-vggt_dinov2_lr-5e-4
+      project: vggt-train
+      entity: tsiebert
+  optim:
+    optimizer:
+      optimizer_config:
+        lr: 5e-4
+    schedulers:
+      lr:
+        name: CompositeParamScheduler
+        scheduler_config:
+          schedulers:
+            - name: LinearParamScheduler
+              scheduler_config:
+                start_value: 1e-7
+                end_value: 5e-4
+            - name: CosineParamScheduler
+              scheduler_config:
+                start_value: 5e-4
+                end_value: 1e-7
+          lengths: [0.05, 0.95]
+    frozen_submodules:
+      - "aggregator.patch_embed"
+  checkpoint:
+    save_freq: 1
+    job_id: din001
+    resume_checkpoint_path: # ${checkpoints_dir}/...
 
 # -- Model
 model:

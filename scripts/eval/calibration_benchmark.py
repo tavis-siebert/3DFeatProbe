@@ -2,15 +2,16 @@ import argparse
 from hydra import initialize, compose
 from omegaconf import OmegaConf
 
-from src.eval.single_view_calibration import benchmark
+# single view calibration is just dense n-view with 1 view and ray_err metric
+from src.eval.dense_n_view import benchmark
 
 def main():
-    parser = argparse.ArgumentParser(description="Train model with configurable YAML file")
+    parser = argparse.ArgumentParser(description="Benchmark model on single view calibration with config file")
     parser.add_argument(
         "--config", 
         type=str, 
         default="calibration_benchmark",
-        help="Name of the config file (without .yaml extension, default: default)"
+        help="Name of the config file (without .yaml extension)"
     )
     args = parser.parse_args()
 

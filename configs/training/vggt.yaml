@@ -9,12 +9,12 @@ optim:
         schedulers:
           - name: LinearParamScheduler
             scheduler_config:
-              start_value: 1e-8
-              end_value: 1e-4
+              start_value: 1e-6
+              end_value: 5e-4
           - name: CosineParamScheduler
             scheduler_config:
-              start_value: 1e-4
-              end_value: 1e-8
+              start_value: 5e-4
+              end_value: 1e-6
         lengths: [0.05, 0.95]
         interval_scaling: ['rescaled', 'rescaled']
     weight_decay:
@@ -23,20 +23,23 @@ optim:
         value: 0.05
   gradient_clip:
     module_configs:
-    - module_name: ["aggregator"]
-      max_norm: 1.0   
-      norm_type: 2
-    - module_name: ["depth"]
-      max_norm: 1.0   
-      norm_type: 2
-    - module_name: ["camera"]
-      max_norm: 1.0   
-      norm_type: 2
-    # uncomment if using point head
-    - module_name: ["point"]
-      max_norm: 1.0
-      norm_type: 2
+      - module_name: ["aggregator"]
+        max_norm: 1.0   
+        norm_type: 2
+      - module_name: ["depth"]
+        max_norm: 1.0   
+        norm_type: 2
+      - module_name: ["camera"]
+        max_norm: 1.0   
+        norm_type: 2
+      # uncomment if using point head
+      - module_name: ["point"]
+        max_norm: 1.0
+        norm_type: 2
 logging:
+  # how often (epochs) to log qualitative output. Defaults to 1 if null
+  log_vis_freq: 2
+  # metrics to track
   metrics_to_log:
     train:
       - loss_objective
@@ -57,20 +60,20 @@ logging:
       - loss_T
       - loss_R
       - loss_FL
-      - loss_conf_depth
+      #- loss_conf_depth
       - loss_reg_depth
-      - loss_grad_depth
+      #- loss_grad_depth
       # uncomment if using point head
-      - loss_conf_point
+      #- loss_conf_point
       - loss_reg_point
-      - loss_grad_point
+      #- loss_grad_point
       # uncomment if tracking benchmark metrics
       - score_pointmaps_abs_rel
-      - score_pointmaps_inlier_thres_103
+      - score_pointmaps_inlier_thres_105
       - score_pose_ate_rmse
       - score_pose_auc_30
       - score_z_depth_abs_rel
-      - score_z_depth_inlier_thres_103
+      - score_z_depth_inlier_thres_105
       - score_ray_dirs_err_deg
 loss:
   loss_fn: "MultitaskLoss"

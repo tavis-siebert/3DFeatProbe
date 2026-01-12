@@ -2,7 +2,7 @@ import logging
 import contextlib
 import time
 import wandb
-from math import isfinite
+from math import isfinite, isnan
 from omegaconf import DictConfig
 from vggt.utils.pose_enc import pose_encoding_to_extri_intri
 from vggt.utils.geometry import unproject_depth_map_to_point_map
@@ -13,7 +13,7 @@ from src.training.losses.multitask_loss import MultitaskLoss
 from src.training.distributed import all_reduce_mean
 from src.training.utils import *
 from src.training.logging import *
-from src.eval.benchmark import compute_results_for_batcb
+from src.eval.dense_n_view import compute_results_for_batcb
 from .trainer import Trainer
 
 class VGGTTrainer(Trainer):
@@ -172,12 +172,15 @@ class VGGTTrainer(Trainer):
             
             # Run forward/backward (with gradient accumulation if enabled)
             self._run_steps_on_batch_chunks(chunked_batches, "train", loss_trackers)
+            self.steps["train"] += 1
             
             # Gradient clipping
             if self.optim_cfg.gradient_clip:
                 self.scaler.unscale_(self.optims.optimizer)
                 grad_norm_dict = self.gradient_clipper(model=self.model)
                 for key, grad_norm in grad_norm_dict.items():
+                    if isnan(grad_norm):
+                        raise ValueError(f"{key} has NaN gradient. Stopping training.")
                     loss_trackers[f"Grad/{key}"].update(grad_norm)
             
             # Optimizer step
@@ -302,6 +305,8 @@ class VGGTTrainer(Trainer):
                         dtype=amp_type,
                     ):
                         _, last_preds = self._step(batch, "val", loss_trackers)
+
+                self.steps["val"] += 1
                 
                 # Benchmark on validation set
                 if isinstance(self.model, nn.parallel.DistributedDataParallel):
@@ -338,17 +343,26 @@ class VGGTTrainer(Trainer):
                 val_scores = {f"{name}_{dataset_name}": tracker.average for name, tracker in score_trackers.items()}
 
                 # Gather visuals
-                # only logging last item of last batch of main process
+                # NOTE: only logging last item of last batch of main process
                 depth_vis, pred_ptc, gt_ptc = self.visualize_preds(last_batch, last_preds)
                 
-                # Log to wandb
+                # -- Log to wandb
                 log_dict = {
                     **val_losses, 
                     **val_scores,
-                    f"Depths/{dataset_name}": depth_vis, 
-                    f"PointClouds/{dataset_name}_gt": gt_ptc,
-                    f"PointClouds/{dataset_name}_pred": pred_ptc,
                 }
+
+                log_vis_freq = self.log_cfg.log_vis_freq or 1
+                # only add ground-truth point cloud on first epoch 
+                if self.epoch == 0 and log_vis_freq <= self.max_epochs:
+                    log_dict.update({f"PointClouds/{dataset_name}_gt": gt_ptc})
+                # only log visuals every vis_freq epochs to avoid storage misuse
+                if (self.epoch + 1) % log_vis_freq == 0:
+                    log_dict.update({
+                        f"Depths/{dataset_name}": depth_vis, 
+                        f"PointClouds/{dataset_name}_pred": pred_ptc,
+                    })
+
                 wandb.log(log_dict, step=self.steps['train'] - 1)
 
         # Display efficiency across validation
@@ -440,7 +454,6 @@ class VGGTTrainer(Trainer):
                 if loss_key in loss_trackers:
                     loss_trackers[loss_key].update(value, batch_size)
         
-        self.steps[phase] += 1
         return loss_dict, y_hat
 
     #----------#

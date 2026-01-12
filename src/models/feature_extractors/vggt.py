@@ -22,6 +22,7 @@ class VGGTFeatureExtractor(FeatureExtractor):
         vggt_config: Dict,
         checkpoint_path: str=None,
         layer_types: List[str]=["all"],
+        **kwargs,
     ):
         """
         Args (see VGGT class for full list):
@@ -43,6 +44,11 @@ class VGGTFeatureExtractor(FeatureExtractor):
             load_checkpoint(self.model, checkpoint_path)
         else:
             self.model = VGGT.from_pretrained("facebook/VGGT-1B")
+        
+        # add required attrs
+        self.patch_size = self.model.patch_size
+        self.embed_dim = self.model.embed_dim
+        self.img_size = self.model.img_size
 
         possible_layer_types = ("patch_embed", "frame", "global", "all")
         assert all([layer in possible_layer_types for layer in layer_types]), \
