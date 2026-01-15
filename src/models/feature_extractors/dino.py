@@ -241,7 +241,7 @@ class DINOv2(FeatureExtractor):
             x_norm_patchtokens = x_norm[:, -num_patches:, :]
 
         if unflatten_patches:
-            patch_embeds = patch_embeds.unflatten(1, (num_patches_h, num_patches_w))
+            x_norm_patchtokens = x_norm_patchtokens.unflatten(1, (num_patches_h, num_patches_w))
         
         # stick with VisionTransformer convention
         output_dict = {

@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Dict, Callable
 from omegaconf import DictConfig, OmegaConf
 from mapanything.datasets import get_test_data_loader
-from mapanything.models import init_model
 from mapanything.utils.geometry import (
     geotrf,
     inv,
@@ -29,9 +28,14 @@ from mapanything.utils.geometry import (
 )
 from mapanything.utils.misc import StreamToLogger
 
+from src.datasets import build_wai_dataloader
+from src.training.utils import convert_mapa_batch_to_vggt, move_data_to_device
+from src.models.vggt import VGGT
+from src.utils.logging import direct_logger_to_stdout
 from .metrics import *
 
 log = logging.getLogger(__name__)
+direct_logger_to_stdout(log)
 
 # Metric Registry
 METRIC_REGISTRY: Dict[str, Callable] = {}
@@ -42,11 +46,13 @@ def register_metric(name: str, metric_fn: Callable):
 
 register_metric("pointmaps_abs_rel", compute_pointmaps_abs_rel)
 register_metric("pointmaps_inlier_thres_103", compute_pointmaps_inlier_thres_103)
+register_metric("pointmaps_inlier_thres_105", compute_pointmaps_inlier_thres_105)
 register_metric("pose_ate_rmse", compute_pose_ate_rmse)
 register_metric("pose_auc_5", compute_pose_auc_5)
 register_metric("pose_auc_30", compute_pose_auc_30)
 register_metric("z_depth_abs_rel", compute_z_depth_abs_rel)
 register_metric("z_depth_inlier_thres_103", compute_z_depth_inlier_thres_103)
+register_metric("z_depth_inlier_thres_105", compute_z_depth_inlier_thres_105)
 register_metric("ray_dirs_err_deg", compute_ray_dirs_err_deg)
 
 # Utils
@@ -298,7 +304,7 @@ def build_dataset(dataset, batch_size, num_workers):
     Returns:
         DataLoader: PyTorch DataLoader configured for the specified dataset.
     """
-    print("Building data loader for dataset: ", dataset)
+    log.info("Building data loader for dataset: ", dataset)
     loader = get_test_data_loader(
         dataset,
         batch_size=batch_size,
@@ -308,7 +314,7 @@ def build_dataset(dataset, batch_size, num_workers):
         drop_last=False,
     )
 
-    print("Dataset length: ", len(loader))
+    log.info("Dataset length: ", len(loader))
     return loader
 
 # Main
@@ -369,28 +375,30 @@ def compute_results_for_batcb(
 
 @torch.no_grad()
 def benchmark(args):
-    print("Output Directory: " + args.output_dir)
+    # Setup output dir
+    log.info("Output Directory: " + args.output_dir)
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
-    print("job dir: {}".format(os.path.dirname(os.path.realpath(__file__))))
-    print("{}".format(args).replace(", ", ",\n"))
+    log.info("job dir: {}".format(os.path.dirname(os.path.realpath(__file__))))
+    log.info("{}".format(args).replace(", ", ",\n"))
 
+    # Device
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    device = torch.device(device)
 
     # Fix the seed
     seed = args.seed
     torch.manual_seed(seed)
     np.random.seed(seed)
 
+    # CUDNN benchmark
     cudnn.benchmark = not args.disable_cudnn_benchmark
 
     # Determine the mixed precision floating point type
-    if args.amp:
-        if args.amp_dtype == "fp16":
+    if args.amp.enabled:
+        if args.amp.amp_dtype == "fp16":
             amp_dtype = torch.float16
-        elif args.amp_dtype == "bf16":
+        elif args.amp.amp_dtype == "bf16":
             if torch.cuda.is_bf16_supported():
                 amp_dtype = torch.bfloat16
             else:
@@ -398,40 +406,56 @@ def benchmark(args):
                     "bf16 is not supported on this device. Using fp16 instead."
                 )
                 amp_dtype = torch.float16
-        elif args.amp_dtype == "fp32":
+        elif args.amp.amp_dtype == "fp32":
             amp_dtype = torch.float32
     else:
         amp_dtype = torch.float32
 
     # Init Test Datasets and Dataloaders
-    print("Building test dataset {:s}".format(args.dataset.test_dataset))
+    log.info("Building test dataset {:s}".format(args.dataset.test_dataset))
     data_loaders = {
-        dataset.split("(")[0]: build_dataset(
-            dataset, args.batch_size, args.dataset.num_workers
+        dataset.split("(")[0]: build_wai_dataloader(
+            dataset=dataset, num_workers=args.dataset.num_workers, test=True, 
+            multi_res=False, batch_size=args.batch_size,
         )
         for dataset in args.dataset.test_dataset.split("+")
         if "(" in dataset
     }
 
-    #TODO: Load Model
-    model = ... # init_model(args.model.model_str, args.model.model_config, torch_hub_force_reload=False)
+    # Load Model
+    model_cfg = args.model
+    if model_cfg.load_pretrained:
+        model = VGGT.from_pretrained("facebook/VGGT-1B")
+        model_name = "vggt-1b-pretrained"
+        log.info("Initialized Model from `facebook/VGGT-1B'")
+    else:
+        model_args = model_cfg.model_config
+        model = VGGT(**model_args)
+        patch_embed_name = model_args.patch_embed_config.model_config.checkpoint_path.split('/')[-1].split('.')[0] \
+            if model_args.patch_embed_config.model_config.checkpoint_path \
+            else model_args.patch_embed_config.model_id.split('/')[1]
+        model_name = f"vggt-{patch_embed_name}"
+        log.info(f"Initialized Model: {str(model)}")
     model.to(device)  # Move model to device
     model.eval()
-    #TODO: Load pretrained model
-    if args.model.pretrained:
-        print("Loading pretrained: ", args.model.pretrained)
-        ckpt = torch.load(
-            args.model.pretrained, map_location=device, weights_only=False
+
+    ckpt_path = args.checkpoint_path
+    if ckpt_path:
+        log.info(f"Loading checkpoint from: '{ckpt_path}'")
+        with open(ckpt_path, "rb") as f:
+            ckpt = torch.load(f, map_location=device, weights_only=False)
+        log.info(
+            model.load_state_dict(ckpt["model"] if "model" in ckpt else ckpt, strict=False)
         )
-        print(model.load_state_dict(ckpt["model"], strict=False))
     
     # Create dictionary to keep track of the results across different benchmarking datasets
     per_dataset_results = {}
-    eval_metrics = args.eval_metrics #TODO update config
+    eval_metrics = args.eval_metrics
 
     # Loop over the benchmarking datasets
     for benchmark_dataset_name, data_loader in data_loaders.items():
-        print("Benchmarking dataset: ", benchmark_dataset_name)
+        benchmark_dataset_name = benchmark_dataset_name.replace(' ','')
+        log.info(f"Benchmarking dataset: {benchmark_dataset_name}")
         data_loader.dataset.set_epoch(0)
 
         # Create dictionary to keep track of the results across different scenes
@@ -445,11 +469,19 @@ def benchmark(args):
 
         # Loop over the batches
         for batch in data_loader:
-            # Remove unnecessary indices
+            # Convert batch to B, S, C, H, W and move to device
+            model_ready_batch = convert_mapa_batch_to_vggt(batch) 
+            model_ready_batch = move_data_to_device(model_ready_batch, device)
+
+            # Run model inference
+            # Length of preds is equal to the number of views
+            with torch.autocast("cuda", enabled=bool(args.amp.enabled), dtype=amp_dtype):
+                preds = model(model_ready_batch["images"])
+                preds = model.convert_preds_to_mapa(preds)
+
+            ### Compute results for batch
             for view in batch:
                 view["idx"] = view["idx"][2:]
-
-            # Transfer batch to device
             ignore_keys = set([
                 "depthmap",
                 "dataset",
@@ -460,30 +492,22 @@ def benchmark(args):
                 "rng",
                 "data_norm_type",
             ])
-
             for view in batch:
                 for name in view.keys():  # pseudo_focal
                     if name in ignore_keys:
                         continue
                     view[name] = view[name].to(device, non_blocking=True)
-
-            # Run model inference
-            # Length of preds is equal to the number of views
-            with torch.autocast("cuda", enabled=bool(args.amp), dtype=amp_dtype):
-                preds = model(batch)
-                #TODO: if vggt-only, add conversion
-
-            ### Compute results for batch
             compute_results_for_batcb(batch, preds, eval_metrics, per_scene_results)
 
-        # Save the per scene results to a json file
+        # Save per-scene results
+        # scene -> metric -> list of scores for each multiview set sampled from scene
         with open(os.path.join(
-                args.output_dir, f"{benchmark_dataset_name}_per_scene_results.json"
-            ), "w",
-        ) as f:
+            args.output_dir, f"{model_name}_{benchmark_dataset_name}_views-{args.dataset.num_views}.json"
+        ), "w") as f:
             json.dump(per_scene_results, f, indent=4)
 
-        # Aggregate the per scene results
+        # Aggregate results across scenes in dataset
+        # metric -> avg across all scenes of that metric
         across_dataset_results = {}
         for scene in per_scene_results.keys():
             for metric in per_scene_results[scene].keys():
@@ -491,12 +515,13 @@ def benchmark(args):
                     across_dataset_results[metric] = []
                 across_dataset_results[metric].extend(per_scene_results[scene][metric])
 
-        # Compute the mean across all scenes
         for metric in across_dataset_results.keys():
             across_dataset_results[metric] = np.mean(
                 across_dataset_results[metric]
             ).item()
 
+        '''
+        # NOTE: disabled since the per-dataset results store this info
         # Save the average results across all scenes to a json file
         with open(
             os.path.join(
@@ -505,34 +530,31 @@ def benchmark(args):
             "w",
         ) as f:
             json.dump(across_dataset_results, f, indent=4)
+        '''
 
-        # Print the average results across all scenes
-        print("Average results across all scenes for dataset: ", benchmark_dataset_name)
-        for metric in across_dataset_results.keys():
-            print(f"{metric}: {across_dataset_results[metric]}")
-
-        # Add the average result to the per dataset result dictionary
         per_dataset_results[benchmark_dataset_name] = across_dataset_results
 
+        # Print the average results across all scenes
+        log.info(f"Avg Results for dataset {benchmark_dataset_name}:")
+        log.info(json.dumps(across_dataset_results, indent=4))
+
     # Compute the average results across all datasets and add an average entry to the per dataset result dictionary
+    # dataset (incl. overall) -> metric -> avg across all datasets of that metric
     average_results = {}
     for metric in per_dataset_results[next(iter(per_dataset_results))].keys():
         metric_values = [
             per_dataset_results[dataset][metric] for dataset in per_dataset_results
         ]
         average_results[metric] = np.mean(metric_values).item()
-    per_dataset_results["Average"] = average_results
+    per_dataset_results["overall"] = average_results
 
-    # Print the average results across all datasets
-    print("Benchmarking Done! ...")
-    print("Average results across all datasets:")
-    for metric in average_results.keys():
-        print(f"{metric}: {average_results[metric]}")
-
-    # Save the per dataset results to a json file
-    with open(os.path.join(args.output_dir, "per_dataset_results.json"), "w") as f:
+    # Save the per-dataset results + overall avg
+    with open(os.path.join(args.output_dir, f"{model_name}_overall_views-{args.dataset.num_views}.json"), "w") as f:
         json.dump(per_dataset_results, f, indent=4)
-
+    
+    # Log the average across all datasets
+    log.info(f"Overall Results across datasets:")
+    log.info(json.dumps(average_results, indent=4))
 
 @hydra.main(
     version_base=None, config_path="../../configs", config_name="dense_n_view_benchmark"

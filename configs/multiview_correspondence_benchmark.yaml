@@ -1,6 +1,6 @@
 defaults:
-  - machine: euler
-  - model: mum
+  - machine: clariden
+  - model: vggtfeatureextractor
   - dataset: benchmark_multiview_correspondence
   - _self_
 
@@ -14,16 +14,15 @@ batch_size: 20
 amp:
   enabled: true
   amp_dtype: "bf16"
-# Voxel size (creates dim / voxel_size spaced voxels in a given dimension)
-voxel_size: 0.2
 
-# Model
-#model:
-#  model_id: backbone/mumvisiontransformer
-#  model_config:
-#    pretrained: true
-#    preprocess_images: true
-checkpoint_path: null #${machine.checkpoints_dir}/dinvo2-base_fit3d.pt
+# Voxel size (creates dim / voxel_size spaced voxels in a given dimension)
+voxel_sizes:
+  - 0.7
+  - 0.3
+
+# Num views
+dataset:
+  num_views: 4
 
 # Dirs
 output_dir: ${machine.results_dir}/multiview_correspondence

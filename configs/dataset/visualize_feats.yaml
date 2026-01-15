@@ -1,0 +1,13 @@
+defaults:
+  - default
+
+num_views: 4
+
+# Sample 1 multi-view set from each scene
+# ETH3D: 13 scenes
+# ScanNet++V2: 30 scenes
+# BlendedMVS: 43 scenes
+# MVSSynth: 6 scenes
+# Unrealstereo4k: 1 scene
+test_dataset:
+  "43 @ ${dataset.blendedmvs.val.dataset_str}"

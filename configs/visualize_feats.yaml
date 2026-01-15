@@ -1,0 +1,62 @@
+defaults:
+  - machine: clariden
+  - dataset: visualize_feats
+  - _self_
+
+### Benchmarking args
+seed: 0
+# Disable CUDNN Benchmark (Disable for variable resolution & number of view training)
+disable_cudnn_benchmark: true
+# Batch size for inference (Metrics are computed per multi-view set and averaged, not per batch of multi-view sets)
+batch_size: 4
+# Use mixed precision for inference
+amp:
+  enabled: true
+  amp_dtype: "bf16"
+
+# What to visualize
+vis_modes:
+  - pca
+  - kmeans
+
+n_clusters: 16
+
+# Dataset
+dataset:
+  num_views: 4
+  resolution: # scale up to get nice visuals
+    val:
+      blendedmvs: (1024, 768)
+      mvs_synth: (1024, 640)
+      scannetppv2: (1024, 768)
+      eth3d: (1024, 768)
+max_scenes: 3  # save time / memory
+
+# Model
+model:
+  data_norm_type: identity
+  
+model_configs:
+  - model_id: feature_extractor/dinov2
+    model_config:
+      checkpoint_path: null
+      preprocess_images: true
+      backbone: "base"
+      use_timm: true
+      with_registers: true
+  - model_id: feature_extractor/dinov2
+    model_config:
+      checkpoint_path: ${machine.checkpoints_dir}/dinov2-base_fit3d.pt
+      preprocess_images: true
+      backbone: "base"
+      use_timm: true
+      with_registers: false
+  - model_id: feature_extractor/mumvisiontransformer
+    model_config:
+      checkpoint_path: null
+      preprocess_images: true
+
+# Dirs
+output_dir: ${machine.capstor}/results/visualization/backbone-compare
+root_data_dir: ${machine.root_data_dir}
+mapanything_metadata_dir: ${machine.mapanything_metadata_dir}

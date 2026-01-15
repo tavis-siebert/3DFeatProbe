@@ -7,119 +7,17 @@ import torch.backends.cudnn as cudnn
 import numpy as np
 from pathlib import Path
 from typing import Dict, Optional, List, Tuple
+from collections.abc import Sequence
 
 from src.utils.logging import direct_logger_to_stdout
 from src.training.utils import convert_mapa_batch_to_vggt, move_data_to_device
 from src.datasets import build_wai_dataloader
 from src.models import get_model_from_model_id
-from src.models.feature_extractors import FeatureExtractor
+from src.models.feature_extractors.base import FeatureExtractor
 
 # Logging
 log = logging.getLogger(__name__)
 direct_logger_to_stdout(log)
-
-###########
-## DEBUG ##
-'''
-import random
-import numpy as np
-
-def evaluate_pairs_and_precision(features, voxel_ids, sample_pairs=50000, ks=(1,5,10)):
-    device = features.device
-    N, H_p, W_p, D = features.shape
-    features_per_frame = H_p * W_p
-    L = N * features_per_frame
-    features = F.normalize(features.reshape(L, D), p=2, dim=-1)
-
-    frame_ids = torch.arange(L, device=device) // features_per_frame
-
-    # Build index lists
-    idx = torch.arange(L, device=device)
-    # valid indices (exclude voxel_id == -1 if you set sentinel)
-    valid_mask_idx = (voxel_ids >= 0)
-    valid_idx = idx[valid_mask_idx]
-    if len(valid_idx) == 0:
-        raise RuntimeError("No valid patches")
-
-    # Precompute pair masks (but we will sample)
-    # Sample corr pairs (same voxel, different frame)
-    same_vox = {}
-    inv_map = {}
-    # indices per voxel
-    for i, vid in enumerate(voxel_ids.tolist()):
-        if vid < 0: 
-            continue
-        inv_map.setdefault(int(vid), []).append(i)
-    corr_pairs = []
-    noncorr_pairs = []
-    # build corr list
-    for vid, inds in inv_map.items():
-        # group per frame
-        by_frame = {}
-        for ii in inds:
-            f = int(frame_ids[ii].item())
-            by_frame.setdefault(f, []).append(ii)
-        frames = list(by_frame.keys())
-        if len(frames) < 2: 
-            continue
-        # sample cross-frame combos
-        for i_frame in range(len(frames)):
-            for j_frame in range(i_frame+1, len(frames)):
-                A = by_frame[frames[i_frame]]
-                B = by_frame[frames[j_frame]]
-                for a in A:
-                    for b in B:
-                        corr_pairs.append((a,b))
-    # build noncorr pairs by sampling random pairs from different voxels
-    # naive but ok for sample limit
-    all_valid = [i for i in range(L) if (voxel_ids[i] >= 0)]
-    while len(noncorr_pairs) < sample_pairs and len(noncorr_pairs) < 10_000_000:
-        a = random.choice(all_valid)
-        b = random.choice(all_valid)
-        if frame_ids[a] == frame_ids[b]:
-            continue
-        if voxel_ids[a] != voxel_ids[b]:
-            noncorr_pairs.append((a,b))
-    # sample arrays
-    corr_pairs_sample = random.sample(corr_pairs, min(len(corr_pairs), sample_pairs))
-    noncorr_pairs_sample = random.sample(noncorr_pairs, min(len(noncorr_pairs), sample_pairs))
-
-    def sims_for(pairs):
-        a_idx = torch.tensor([p[0] for p in pairs], device=device)
-        b_idx = torch.tensor([p[1] for p in pairs], device=device)
-        sims = (features[a_idx] * features[b_idx]).sum(dim=-1)
-        return sims.cpu().numpy()
-
-    sims_corr = sims_for(corr_pairs_sample)
-    sims_noncorr = sims_for(noncorr_pairs_sample)
-
-    # stats
-    def stats(arr):
-        return {"count": len(arr), "median": float(np.median(arr)), "90p": float(np.percentile(arr, 90))}
-    stats_corr = stats(sims_corr)
-    stats_noncorr = stats(sims_noncorr)
-
-    # precision@k
-    # For each anchor, compute top-k neighbors across other frames and check if any share voxel id
-    # We'll sample anchors to speed
-    anchors = random.sample(list(all_valid), min(5000, len(all_valid)))
-    precs = {k: 0 for k in ks}
-    for a in anchors:
-        sim_row = (features[a].unsqueeze(0) @ features.t()).squeeze(0)  # (L,)
-        # mask same frame and invalids
-        sim_row[frame_ids == frame_ids[a]] = -999
-        # get top max_k
-        topk = torch.topk(sim_row, max(ks)).indices.cpu().tolist()
-        for k in ks:
-            topk_k = topk[:k]
-            hit = any(int(voxel_ids[t]) == int(voxel_ids[a]) for t in topk_k)
-            precs[k] += int(hit)
-    for k in ks:
-        precs[k] = precs[k] / len(anchors)
-
-    return {"corr_stats": stats_corr, "noncorr_stats": stats_noncorr, "precision_at_k": precs}
-'''
-###########
 
 def downsample_world_coords(
     world_coords: torch.Tensor, 
@@ -230,7 +128,7 @@ def voxelize_world_coords(
 
     return world_coords_discrete.reshape(N, H_p, W_p, 3), voxel_ids
 
-def correspondence_score(features: torch.Tensor, voxel_ids: torch.Tensor, chunk_size: int = 1024) -> tuple[float, float]:
+def correspondence_score(features: torch.Tensor, voxel_ids: torch.Tensor, chunk_size: int = 2048) -> Dict[str, float]:
     """
     Compute correspondence and non-correspondence scores based on cosine similarity of features.
     Corresponding patches are defined as those that map to the same voxel in different views.
@@ -240,7 +138,13 @@ def correspondence_score(features: torch.Tensor, voxel_ids: torch.Tensor, chunk_
         voxel_ids (torch.Tensor): (L,) - long or int tensor mapping each feature to a voxel id
         chunk_size (int): number of rows to process at once (tune to memory limits)
     Returns:
-        (corr_mean, non_corr_mean)
+        Dict[str, float]: correspondence metrics:
+            {
+                "corr_score": average cosine similarity of corresponding patches,
+                "noncorr_score": average cosine similarity of non-corresponding patches,
+                "corr_count": number of corresponding patch pairs,
+                "noncorr_count": number of non-corresponding patch pairs,
+            }
     """
     # Flatten features to (L, D)
     if len(features.shape) == 4:
@@ -303,7 +207,12 @@ def correspondence_score(features: torch.Tensor, voxel_ids: torch.Tensor, chunk_
     corr_mean = corr_sum / corr_count if corr_count > 0 else 0.0
     noncorr_mean = noncorr_sum / noncorr_count if noncorr_count > 0 else 0.0
 
-    return float(corr_mean), float(noncorr_mean), corr_count, noncorr_count
+    return {
+        "corr_score": float(corr_mean), 
+        "noncorr_score": float(noncorr_mean), 
+        "corr_count": corr_count, 
+        "noncorr_count": noncorr_count
+    }
 
 @torch.no_grad()
 def compute_correspondence_score(
@@ -370,40 +279,31 @@ def compute_correspondence_score(
                 patchtokens = layer_out["x_norm_patchtokens"]
                 D = patchtokens.shape[-1]
                 layerwise_feats[layer_name] = patchtokens.reshape(B, S, -1, D)
-        
+
         # Loop over each batch
         for batch_idx in range(B):
             scene = batch[0]["label"][batch_idx]
             
             # Pool world coordinates to assign one point per image patch
             world_pts = model_ready_batch["world_points"][batch_idx]
+            valid_mask = model_ready_batch["point_masks"][batch_idx]
+
             patch_coords, valid_mask = downsample_world_coords(
-                world_coords=world_pts, patch_size=model.patch_size, mask=model_ready_batch["point_masks"][batch_idx]
+                world_coords=world_pts, patch_size=model.patch_size, valid_mask=valid_mask
             )
-        
+
+            # skip if no valid points
+            if valid_mask.sum().item() == 0:
+                continue
+
             # Compute hypothetical voxels for each valid world point
             _, voxel_ids = voxelize_world_coords(patch_coords, valid_mask, voxel_size=voxel_size)
 
             # Compute scores per feature map
-            per_scene_scores[scene] = {metric: {name: [] for name in layerwise_feats.keys()} for metric in per_scene_scores[scene].keys()}
-
-            for name, feats in layerwise_feats.items():
-                corr_score, noncorr_score, corr_count, noncorr_count = correspondence_score(feats[batch_idx], voxel_ids)
-                per_scene_scores[scene]["corr_score"][name].append(corr_score)
-                per_scene_scores[scene]["noncorr_score"][name].append(noncorr_score)
-                per_scene_scores[scene]["corr_count"][name].append(corr_count)
-                per_scene_scores[scene]["noncorr_count"][name].append(noncorr_count)
-
-                ###########
-                ## DEBUG ##
-                # print(evaluate_pairs_and_precision(feats, voxel_ids, ))
-                ###########
-    
-    # Aggregate per-scene results
-    for scene in per_scene_scores.keys():
-        for metric in per_scene_scores[scene].keys():
-            for layer_name in per_scene_scores[scene][metric].keys():
-                per_scene_scores[scene][metric][layer_name] = np.mean(per_scene_scores[scene][metric][layer_name])
+            for layer_name, feats in layerwise_feats.items():
+                corr_metrics = correspondence_score(feats[batch_idx], voxel_ids)
+                for metric in corr_metrics.keys():
+                    per_scene_scores[scene][metric].setdefault(layer_name, []).append(corr_metrics[metric])
 
     return per_scene_scores
 
@@ -449,34 +349,49 @@ def benchmark(args):
         if "(" in dataset
     }
 
+    num_datasets = len(data_loaders)
+    voxel_sizes = args.voxel_sizes
+    if isinstance(voxel_sizes, float):
+        voxel_sizes = [voxel_sizes] * num_datasets
+    elif isinstance(voxel_sizes, Sequence):
+        num_voxel_sizes = len(voxel_sizes)
+        assert num_voxel_sizes == num_datasets,\
+            f"Must supply one voxel size per dataset, or one for all datasets. Got {num_voxel_sizes} voxel sizes and {num_datasets} datasets"
+    else:
+        raise ValueError(f"Unsupported type for voxel sizes {type(voxel_sizes)}. Must be float or Sequence[float]")
+    voxel_sizes = iter(voxel_sizes)
+
     # Load model
     assert "feature_extractor" in args.model.model_id, "Can only test correspondence on instances of FeatureExtractor"
     model = get_model_from_model_id(args.model.model_id, args.model.model_config)
     model.to(device)
     model.eval()
-        
     # for output naming
-    model_name = model.checkpoint_path.split('/')[-1].split('.')[0] if model.checkpoint_path else args.model.model_id.split('/')[1]
+    model_name = args.model.model_config.checkpoint_path.split('/')[-1].split('.')[0] if args.model.model_config.checkpoint_path else args.model.model_id.split('/')[1]
 
     # Run eval across datasets
     per_dataset_results = {}
     for benchmark_dataset_name, data_loader in data_loaders.items():
         benchmark_dataset_name = benchmark_dataset_name.replace(' ','')
-        log.info(f"Benchmarking dataset: {benchmark_dataset_name}")
+        voxel_size = next(voxel_sizes)
+
+        log.info(f"Benchmarking dataset: {benchmark_dataset_name} - Voxel Size {voxel_size}")
         data_loader.dataset.set_epoch(0)
 
         # Compute per-scene stats
         per_scene_results = compute_correspondence_score(
             data_loader=data_loader, model=model, device=device, 
-            use_amp=args.amp.enabled, amp_dtype=amp_dtype, voxel_size=args.voxel_size
+            use_amp=args.amp.enabled, amp_dtype=amp_dtype, voxel_size=voxel_size
         )
 
         # Save per-scene results
-        out_path = f"mvcorr_{model_name}_{benchmark_dataset_name}_vox-{args.voxel_size}.json"
+        # scene -> metric -> layer -> list of scores for each multiview set sampled from scene
+        out_path = f"{model_name}_{benchmark_dataset_name}_views-{args.dataset.num_views}_vox-{voxel_size}.json"
         with open(os.path.join(args.output_dir, out_path), "w") as f:
             json.dump(per_scene_results, f, indent=4)
 
         # Aggregate results across all scenes in dataset
+        # metric -> layer -> avg across all scenes of that metric
         cross_scene_results = {
             "corr_score": {},
             "noncorr_score": {},
@@ -486,7 +401,8 @@ def benchmark(args):
         for scene in per_scene_results.keys():
             for metric in per_scene_results[scene].keys():
                 for layer_name in per_scene_results[scene][metric].keys():
-                    cross_scene_results[metric].setdefault(layer_name, []).append(per_scene_results[scene][metric][layer_name])
+                    cross_scene_results[metric].setdefault(layer_name, []).extend(per_scene_results[scene][metric][layer_name])
+
         for metric in cross_scene_results.keys():
             for layer_name in cross_scene_results[metric].keys():
                 cross_scene_results[metric][layer_name] = np.mean(cross_scene_results[metric][layer_name])
@@ -515,9 +431,10 @@ def benchmark(args):
     per_dataset_results["overall"] = overall_results
 
     # Save per-dataset results + overall avg
-    out_path = f"mvcorr_overall_{model_name}_vox-{args.voxel_size}.json"
+    # dataset (incl. overall) -> metric -> layer name -> avg across all datasets of that metric
+    out_path = f"{model_name}_overall_views-{args.dataset.num_views}.json"
     with open(os.path.join(args.output_dir, out_path), "w") as f:
-        json.dump(per_dataset_results, f, indent=4)
+       json.dump(per_dataset_results, f, indent=4)
 
     # Log the average across all datasets
     log.info(f"Overall Results across datasets:")

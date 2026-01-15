@@ -9,35 +9,29 @@ from mapanything.utils.metrics import (
     thresh_inliers,
 )
 
-def compute_pointmaps_abs_rel(gt_info, pr_info, valid_masks, n_views, batch_idx):
-    """Mean relative absolute error for pointmaps"""
+# Abs relative error
+def compute_abs_rel(metric_key, gt_info, pr_info, valid_masks, n_views, batch_idx):
+    """Mean relative absolute error"""
     scores = []
     for view_idx in range(n_views):
         valid_mask = valid_masks[view_idx][batch_idx].numpy()
         score = m_rel_ae(
-            gt=gt_info["pts3d"][view_idx][batch_idx].numpy(),
-            pred=pr_info["pts3d"][view_idx][batch_idx].numpy(),
+            gt=gt_info[metric_key][view_idx][batch_idx].numpy(),
+            pred=pr_info[metric_key][view_idx][batch_idx].numpy(),
             mask=valid_mask,
         )
         scores.append(score)
     return np.mean(scores)
 
+def compute_z_depth_abs_rel(gt_info, pr_info, valid_masks, n_views, batch_idx):
+    """Mean relative absolute error for z-depth"""
+    return compute_abs_rel("z_depths", gt_info, pr_info, valid_masks, n_views, batch_idx)
 
-def compute_pointmaps_inlier_thres_103(gt_info, pr_info, valid_masks, n_views, batch_idx):
-    """Inlier ratio at 1.03 threshold for pointmaps"""
-    scores = []
-    for view_idx in range(n_views):
-        valid_mask = valid_masks[view_idx][batch_idx].numpy()
-        score = thresh_inliers(
-            gt=gt_info["pts3d"][view_idx][batch_idx].numpy(),
-            pred=pr_info["pts3d"][view_idx][batch_idx].numpy(),
-            mask=valid_mask,
-            thresh=1.03,
-        )
-        scores.append(score)
-    return np.mean(scores)
+def compute_pointmaps_abs_rel(gt_info, pr_info, valid_masks, n_views, batch_idx):
+    """Mean relative absolute error for pointmaps"""
+    return compute_abs_rel("pts3d", gt_info, pr_info, valid_masks, n_views, batch_idx)
 
-
+# Pose ATE RMSE
 def compute_pose_ate_rmse(gt_info, pr_info, valid_masks, n_views, batch_idx):
     """Absolute Trajectory Error (ATE) RMSE"""
     gt_poses = [gt_info["poses"][i][batch_idx] for i in range(n_views)]
@@ -45,7 +39,13 @@ def compute_pose_ate_rmse(gt_info, pr_info, valid_masks, n_views, batch_idx):
     ate_score = evaluate_ate(gt_traj=gt_poses, est_traj=pr_poses)
     return ate_score.item()
 
+# Pose AUC
 def compute_pose_auc(gt_info, pr_info, valid_masks, n_views, batch_idx, threshold=30):
+    """
+    Pose AUC@K
+    ----------
+    % of pose pairs with max(R_err, T_err) < K°
+    """
     gt_poses = [gt_info["poses"][i][batch_idx] for i in range(n_views)]
     pr_poses = [pr_info["poses"][i][batch_idx] for i in range(n_views)]
     gt_poses_stacked = torch.stack(gt_poses)
@@ -69,35 +69,43 @@ def compute_pose_auc_30(gt_info, pr_info, valid_masks, n_views, batch_idx):
     """Pose AUC@30"""
     return compute_pose_auc(gt_info, pr_info, valid_masks, n_views, batch_idx, threshold=30)
 
-def compute_z_depth_abs_rel(gt_info, pr_info, valid_masks, n_views, batch_idx):
-    """Mean relative absolute error for z-depth"""
-    scores = []
-    for view_idx in range(n_views):
-        valid_mask = valid_masks[view_idx][batch_idx].numpy()
-        score = m_rel_ae(
-            gt=gt_info["z_depths"][view_idx][batch_idx].numpy(),
-            pred=pr_info["z_depths"][view_idx][batch_idx].numpy(),
-            mask=valid_mask,
-        )
-        scores.append(score)
-    return np.mean(scores)
 
-
-def compute_z_depth_inlier_thres_103(gt_info, pr_info, valid_masks, n_views, batch_idx):
-    """Inlier ratio at 1.03 threshold for z-depth"""
+# Inlier thresjold
+def compute_inlier_thres(metric_key, gt_info, pr_info, valid_masks, n_views, batch_idx, thresh=1.03):
+    """
+    Inlier ratio at given threshold
+    ---------
+    What % of predictions are within `thresh` of ground truth
+    """
     scores = []
     for view_idx in range(n_views):
         valid_mask = valid_masks[view_idx][batch_idx].numpy()
         score = thresh_inliers(
-            gt=gt_info["z_depths"][view_idx][batch_idx].numpy(),
-            pred=pr_info["z_depths"][view_idx][batch_idx].numpy(),
+            gt=gt_info[metric_key][view_idx][batch_idx].numpy(),
+            pred=pr_info[metric_key][view_idx][batch_idx].numpy(),
             mask=valid_mask,
-            thresh=1.03,
+            thresh=thresh,
         )
         scores.append(score)
     return np.mean(scores)
+    
+def compute_z_depth_inlier_thres_103(gt_info, pr_info, valid_masks, n_views, batch_idx):
+    """Inlier ratio at 1.03 threshold for z-depth"""
+    return compute_inlier_thres("z_depths", gt_info, pr_info, valid_masks, n_views, batch_idx, thresh=1.03)
 
+def compute_z_depth_inlier_thres_105(gt_info, pr_info, valid_masks, n_views, batch_idx):
+    """Inlier ratio at 1.05 threshold for z-depth"""
+    return compute_inlier_thres("z_depths", gt_info, pr_info, valid_masks, n_views, batch_idx, thresh=1.05)
 
+def compute_pointmaps_inlier_thres_103(gt_info, pr_info, valid_masks, n_views, batch_idx):
+    """Inlier ratio at 1.03 threshold for pointmaps"""
+    return compute_inlier_thres("pts3d", gt_info, pr_info, valid_masks, n_views, batch_idx, thresh=1.03)
+
+def compute_pointmaps_inlier_thres_105(gt_info, pr_info, valid_masks, n_views, batch_idx):
+    """Inlier ratio at 1.03 threshold for pointmaps"""
+    return compute_inlier_thres("pts3d", gt_info, pr_info, valid_masks, n_views, batch_idx, thresh=1.05)
+
+# Calibration error in degrees
 def compute_ray_dirs_err_deg(gt_info, pr_info, valid_masks, n_views, batch_idx):
     """Angular error in ray directions (calibration)"""
     scores = []

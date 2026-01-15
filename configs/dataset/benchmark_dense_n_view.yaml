@@ -1,7 +1,7 @@
 defaults:
   - default
 
-num_views: 2
+num_views: 4
 
 # Test Set
 # Sample 20 multi-view sets from each scene
@@ -13,4 +13,5 @@ num_views: 2
 test_dataset:
   "860 @ ${dataset.blendedmvs.val.dataset_str}
   + 120 @ ${dataset.mvs_synth.val.dataset_str}
-  + 600 @ {dataset.scannetppv2.val.dataset_str}"
+  + 600 @ ${dataset.scannetppv2.val.dataset_str}
+  + 260 @ ${dataset.eth3d.test.dataset_str}"

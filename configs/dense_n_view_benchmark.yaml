@@ -1,11 +1,7 @@
-# Single-view calibration is a special case of dense_n_view where 
-# - we only eval ray_dirs_err_deg
-# - we only do num_views: 1
-# - we have multi-resolution sampling
 defaults:
   - machine: clariden
   - model: vggt
-  - dataset: benchmark_calibration
+  - dataset: benchmark_dense_n_view
   - _self_
 
 ### Benchmarking args
@@ -13,21 +9,35 @@ seed: 0
 # Disable CUDNN Benchmark (Disable for variable resolution & number of view training)
 disable_cudnn_benchmark: true
 # Batch size for inference (Metrics are computed per multi-view set and averaged, not per batch of multi-view sets)
-batch_size: 20
+batch_size: 24
 # Use mixed precision for inference
 amp:
   enabled: true
-  amp_dtype: "bf16"
+  amp_dtype: bf16
 
 # Metrics
 eval_metrics:
+  # points
+  - pointmaps_abs_rel
+  - pointmaps_inlier_thres_105
+  # depth
+  - z_depth_abs_rel
+  - z_depth_inlier_thres_105
+  # pose
+  - pose_ate_rmse
+  - pose_auc_30
+  # calibration
   - ray_dirs_err_deg
 
-# Model
+# Num views
+dataset:
+  num_views: 4
+
+# -- Model
 model:
   load_pretrained: true
 checkpoint_path: null
 
-output_dir: ${machine.results_dir}/single_view_calibration
+output_dir: ${machine.results_dir}/dense_n_view
 root_data_dir: ${machine.root_data_dir}
 mapanything_metadata_dir: ${machine.mapanything_metadata_dir}
