@@ -272,26 +272,28 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
             )
 
             # Get the pointmaps
-            curr_view_pts3d = (
-                convert_ray_dirs_depth_along_ray_pose_trans_quats_to_pointmap(
-                    curr_view_ray_dirs,
-                    curr_view_depth_along_ray,
-                    curr_view_cam_translations,
-                    curr_view_cam_quats,
+            if "world_points" in preds.keys():
+                # Use directly predicted world points
+                curr_view_pts3d = preds["world_points"][:, view_idx, ...]  # [B, H, W, 3]
+            else:
+                curr_view_pts3d = (
+                    convert_ray_dirs_depth_along_ray_pose_trans_quats_to_pointmap(
+                        curr_view_ray_dirs,
+                        curr_view_depth_along_ray,
+                        curr_view_cam_translations,
+                        curr_view_cam_quats,
+                    )
                 )
-            )
 
             # Append the outputs to the result list
-            res.append(
-                {
-                    "pts3d": curr_view_pts3d,
-                    "pts3d_cam": curr_view_pts3d_cam,
-                    "ray_directions": curr_view_ray_dirs,
-                    "depth_along_ray": curr_view_depth_along_ray,
-                    "cam_trans": curr_view_cam_translations,
-                    "cam_quats": curr_view_cam_quats,
-                    "conf": curr_view_confidence,
-                }
-            )
+            res.append({
+                "pts3d": curr_view_pts3d,
+                "pts3d_cam": curr_view_pts3d_cam,
+                "ray_directions": curr_view_ray_dirs,
+                "depth_along_ray": curr_view_depth_along_ray,
+                "cam_trans": curr_view_cam_translations,
+                "cam_quats": curr_view_cam_quats,
+                "conf": curr_view_confidence,
+            })
             
         return res

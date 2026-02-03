@@ -12,6 +12,5 @@ num_views: 4
 # Unrealstereo4k: 1 scene
 test_dataset:
   "860 @ ${dataset.blendedmvs.val.dataset_str}
-  + 120 @ ${dataset.mvs_synth.val.dataset_str}
   + 600 @ ${dataset.scannetppv2.val.dataset_str}
   + 260 @ ${dataset.eth3d.test.dataset_str}"

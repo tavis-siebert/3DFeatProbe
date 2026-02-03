@@ -158,6 +158,7 @@ def get_info_for_metric_computation(batch, preds, norm_mode="avg_dis"):
             curr_view_no_norm_pr_pts = pr_pts3d_in_view0
             curr_view_no_norm_pr_pts3d_cam = preds[i]["pts3d_cam"]
             curr_view_no_norm_pr_pose_trans = pr_pose_trans_in_view0
+
         no_norm_pr_pts.append(curr_view_no_norm_pr_pts)
         no_norm_pr_pts3d_cam.append(curr_view_no_norm_pr_pts3d_cam)
         no_norm_pr_pose_trans.append(curr_view_no_norm_pr_pose_trans)
@@ -434,7 +435,7 @@ def benchmark(args):
         patch_embed_name = model_args.patch_embed_config.model_config.checkpoint_path.split('/')[-1].split('.')[0] \
             if model_args.patch_embed_config.model_config.checkpoint_path \
             else model_args.patch_embed_config.model_id.split('/')[1]
-        model_name = f"vggt-{patch_embed_name}"
+        model_name = f"vggt-{patch_embed_name}-unfrozen"
         log.info(f"Initialized Model: {str(model)}")
     model.to(device)  # Move model to device
     model.eval()
