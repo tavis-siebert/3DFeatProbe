@@ -1,5 +1,5 @@
 defaults:
-  - machine: clariden
+  - machine: default
   - dataset: visualize_feats
   - _self_
 
@@ -19,6 +19,7 @@ vis_modes:
   - pca
   - kmeans
 
+# Number of clusters for k-means
 n_clusters: 16
 
 # Dataset

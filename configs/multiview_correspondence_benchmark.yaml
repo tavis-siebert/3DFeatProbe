@@ -1,6 +1,6 @@
 defaults:
-  - machine: clariden
-  - model: vggtfeatureextractor
+  - machine: default
+  - model: dinov2
   - dataset: benchmark_multiview_correspondence
   - _self_
 
@@ -9,7 +9,7 @@ seed: 0
 # Disable CUDNN Benchmark (Disable for variable resolution & number of view training)
 disable_cudnn_benchmark: true
 # Batch size for inference (Metrics are computed per multi-view set and averaged, not per batch of multi-view sets)
-batch_size: 20
+batch_size: 24
 # Use mixed precision for inference
 amp:
   enabled: true

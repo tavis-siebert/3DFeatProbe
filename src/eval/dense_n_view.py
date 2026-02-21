@@ -435,7 +435,7 @@ def benchmark(args):
         patch_embed_name = model_args.patch_embed_config.model_config.checkpoint_path.split('/')[-1].split('.')[0] \
             if model_args.patch_embed_config.model_config.checkpoint_path \
             else model_args.patch_embed_config.model_id.split('/')[1]
-        model_name = f"vggt-{patch_embed_name}-unfrozen"
+        model_name = f"vggt-{patch_embed_name}"
         log.info(f"Initialized Model: {str(model)}")
     model.to(device)  # Move model to device
     model.eval()

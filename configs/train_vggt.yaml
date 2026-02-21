@@ -1,6 +1,6 @@
 ### Config for VGGT retrain experiment
 defaults:
-  - machine: clariden
+  - machine: default
   - model: vggt
   - training: vggt
   - dataset: multi_dataset_train

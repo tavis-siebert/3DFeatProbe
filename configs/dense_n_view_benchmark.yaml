@@ -1,5 +1,5 @@
 defaults:
-  - machine: clariden
+  - machine: default
   - model: vggt
   - dataset: benchmark_dense_n_view
   - _self_
