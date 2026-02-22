@@ -4,6 +4,8 @@
 
 This project investigates how much 3D geometric understanding is encoded in the intermediate representations of modern Vision Transformers (ViTs). The project provides a unified evaluation framework for probing pretrained vision foundation models (VFMs) on explicit 3D tasks: multiview correspondence multiview reconstruction, monocular depth estimation, pose estimation, and single-view camera calibration. This is done via fine-tuning experiments that swap in different VFM backbones as the patch embedding encoder for [VGGT](https://github.com/facebookresearch/vggt).
 
+### Results
+If you're curious about the insights we gained from the project, check out the findings [here (report, slides, images)](https://drive.google.com/drive/folders/1leBdwrTA4PG7H9I7zfmr_7-X2PbpMpZn?usp=sharing).
 
 ### Models Supported
 
